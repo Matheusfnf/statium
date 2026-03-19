@@ -281,3 +281,32 @@ function regularizedGammaQ(a: number, x: number): number {
   const result = Math.exp(-x + a * Math.log(x) - logGamma(a)) * h;
   return Math.min(1, Math.max(0, result));
 }
+
+// ============================================================
+// Normal distribution
+// ============================================================
+
+/**
+ * Normal Cumulative Distribution Function approximation
+ * Given a Z-score, returns the cumulative probability.
+ */
+export function normalCDF(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const absX = Math.abs(x) / Math.sqrt(2);
+  const t = 1.0 / (1.0 + 0.5 * absX);
+  
+  // Horner's method for error function approximation
+  const erfApprox = t * Math.exp(-absX * absX - 1.26551223 +
+    t * (1.00002368 +
+      t * (0.37409196 +
+        t * (0.09678418 +
+          t * (-0.18628806 +
+            t * (0.27886807 +
+              t * (-1.13520398 +
+                t * (1.48851587 +
+                  t * (-0.82215223 +
+                    t * 0.17087277)))))))));
+                    
+  const errorFn = 1 - erfApprox;
+  return 0.5 * (1 + sign * errorFn);
+}

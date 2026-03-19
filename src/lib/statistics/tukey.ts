@@ -17,8 +17,8 @@ export interface TukeyComparison {
 }
 
 export interface TukeyResult {
-  dms05: number;            // DMS at 5%
-  dms01: number;            // DMS at 1%
+  dms05: number | null; // Null if unbalanced (Tukey-Kramer has multiple DMSs)
+  dms01: number | null;
   comparisons: TukeyComparison[];
   groups: TukeyGroup[];
 }
@@ -35,36 +35,51 @@ export interface TukeyGroup {
  */
 export function tukeyHSD(
   anovaResult: AnovaResult,
-  data: number[][],
+  data: (number | null)[][],
   alpha: number = 0.05
 ): TukeyResult {
-  const { mse, dfError, treatmentMeans, treatmentNames } = anovaResult;
+  const { mse, dfError, treatmentMeans, treatmentCounts, treatmentNames } = anovaResult;
   const k = treatmentMeans.length;
-  const r = data[0].length; // assuming balanced design
+
+  // Check if design is balanced
+  const isBalanced = treatmentCounts.every(c => c === treatmentCounts[0]) && treatmentCounts[0] > 0;
+  const rBalanced = isBalanced ? treatmentCounts[0] : 0;
 
   // Get q critical value
   const q05 = qCritical(0.05, k, dfError);
   const q01 = qCritical(0.01, k, dfError);
 
-  // DMS (Diferença Mínima Significativa) = q * sqrt(MSE / r)
-  const dms05 = q05 * Math.sqrt(mse / r);
-  const dms01 = q01 * Math.sqrt(mse / r);
+  // Global DMS only if balanced
+  let globalDms05 = null;
+  let globalDms01 = null;
+  
+  if (isBalanced) {
+    globalDms05 = q05 * Math.sqrt(mse / rBalanced);
+    globalDms01 = q01 * Math.sqrt(mse / rBalanced);
+  }
 
-  const currentDms = alpha <= 0.01 ? dms01 : dms05;
-
-  // All pairwise comparisons
   const comparisons: TukeyComparison[] = [];
+  
+  // Pairwise Tukey-Kramer DMS logic
+  const getPairwiseDms = (r1: number, r2: number, q: number) => {
+    if (r1 === 0 || r2 === 0) return Infinity;
+    return (q / Math.sqrt(2)) * Math.sqrt(mse * (1 / r1 + 1 / r2));
+  };
   for (let i = 0; i < k; i++) {
     for (let j = i + 1; j < k; j++) {
       const diff = Math.abs(treatmentMeans[i] - treatmentMeans[j]);
+      
+      const qUsed = alpha <= 0.01 ? q01 : q05;
+      const pairDms = getPairwiseDms(treatmentCounts[i], treatmentCounts[j], qUsed);
+      
       comparisons.push({
         treatment1: treatmentNames[i],
         treatment2: treatmentNames[j],
         mean1: treatmentMeans[i],
         mean2: treatmentMeans[j],
         difference: diff,
-        dms: currentDms,
-        significant: diff >= currentDms,
+        dms: pairDms,
+        significant: diff >= pairDms,
       });
     }
   }
@@ -72,32 +87,54 @@ export function tukeyHSD(
   // Assign grouping letters
   const meansWithIndex = treatmentMeans.map((m, i) => ({ index: i, mean: m }));
   const sorted = [...meansWithIndex].sort((a, b) => a.mean - b.mean);
+  const qUsedForGroups = alpha <= 0.01 ? q01 : q05;
 
   // Build groups using absorption algorithm
-  const groups = buildTukeyGroups(sorted, currentDms, treatmentNames);
+  const groups = buildTukeyGroupsKramer(sorted, treatmentCounts, qUsedForGroups, mse, treatmentNames);
 
   return {
-    dms05,
-    dms01,
+    dms05: globalDms05,
+    dms01: globalDms01,
     comparisons,
     groups,
   };
 }
 
-function buildTukeyGroups(
+function buildTukeyGroupsKramer(
   sorted: { index: number; mean: number }[],
-  dms: number,
+  counts: number[],
+  qVal: number,
+  mse: number,
   names: string[]
 ): TukeyGroup[] {
   const n = sorted.length;
   const maximalGroups: number[][] = []; 
+  
+  const getPairDms = (r1: number, r2: number) => {
+    if (r1 === 0 || r2 === 0) return Infinity;
+    return (qVal / Math.sqrt(2)) * Math.sqrt(mse * (1 / r1 + 1 / r2));
+  };
 
   // Step 1: Find all maximal non-significant sets
-  // A set is non-significant if max(mean) - min(mean) <= dms
+  // A set is non-significant if EVERY pair is not significantly different
   for (let i = 0; i < n; i++) {
     for (let j = n - 1; j >= i; j--) {
-      const diff = Math.abs(sorted[i].mean - sorted[j].mean);
-      if (diff <= dms) {
+      
+      let allPairsNonSignificant = true;
+      for(let x = i; x <= j; x++) {
+        for(let y = x + 1; y <= j; y++) {
+           const diff = Math.abs(sorted[x].mean - sorted[y].mean);
+           const r1 = counts[sorted[x].index];
+           const r2 = counts[sorted[y].index];
+           if (diff > getPairDms(r1, r2)) {
+             allPairsNonSignificant = false;
+             break;
+           }
+        }
+        if(!allPairsNonSignificant) break;
+      }
+
+      if (allPairsNonSignificant) {
         // Potential group from i to j
         const currentGroup = [];
         for (let k = i; k <= j; k++) {

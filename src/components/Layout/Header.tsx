@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/client';
 import AuthModal from '@/components/Auth/AuthModal';
@@ -9,6 +9,8 @@ import styles from './Header.module.css';
 export default function Header() {
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
   useEffect(() => {
@@ -22,6 +24,17 @@ export default function Header() {
 
     return () => subscription.unsubscribe();
   }, [supabase]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <header className={styles.header}>
@@ -42,11 +55,37 @@ export default function Header() {
         </Link>
 
         {user ? (
-          <div className={styles.userMenu}>
-            <span className={styles.userEmail}>{user.email}</span>
-            <button className={styles.logoutBtn} onClick={() => supabase.auth.signOut()}>
-              Sair
+          <div className={styles.userMenu} ref={menuRef}>
+            <button 
+              className={styles.profileBtn}
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+            >
+              <div className={styles.avatar}>
+                {user.email ? user.email.charAt(0).toUpperCase() : 'U'}
+              </div>
             </button>
+            {isMenuOpen && (
+              <div className={styles.dropdown}>
+                <div className={styles.dropdownHeader}>
+                  <div className={styles.dropdownEmail}>{user.email}</div>
+                </div>
+                <div className={styles.dropdownDivider}></div>
+                <Link href="/history" className={styles.dropdownItem} onClick={() => setIsMenuOpen(false)}>
+                  <span className={styles.dropdownIcon}>⭐</span>
+                  Meus Favoritos
+                </Link>
+                <button 
+                  className={styles.dropdownItem} 
+                  onClick={() => {
+                    supabase.auth.signOut();
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <span className={styles.dropdownIcon}>🚪</span>
+                  Sair
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <button className={styles.loginBtn} onClick={() => setIsAuthOpen(true)}>

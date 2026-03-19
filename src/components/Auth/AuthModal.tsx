@@ -54,8 +54,14 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       <div className={styles.overlay} onClick={onClose} />
       <div className={styles.modal}>
         <div className={styles.header}>
-          <h2>{isLogin ? 'Entrar no Statium' : 'Criar Conta'}</h2>
-          <button className={styles.closeBtn} onClick={onClose} type="button">✕</button>
+          <div className={styles.titleWrapper}>
+            <div className={styles.logoIcon}>S</div>
+            <div>
+              <h2 className={styles.title}>{isLogin ? 'Bem-vindo de volta' : 'Criar Conta'}</h2>
+              <p className={styles.subtitle}>{isLogin ? 'Faça login para continuar' : 'Comece a analisar seus dados'}</p>
+            </div>
+          </div>
+          <button className={styles.closeBtn} onClick={onClose} type="button" title="Fechar">✕</button>
         </div>
         
         <form className={styles.form} onSubmit={handleSubmit}>
@@ -69,6 +75,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               onChange={e => setEmail(e.target.value)} 
               required 
               autoFocus
+              placeholder="seu@email.com"
               className={styles.input}
             />
           </div>
@@ -80,6 +87,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               value={password} 
               onChange={e => setPassword(e.target.value)} 
               required 
+              placeholder="••••••••"
               className={styles.input}
             />
           </div>

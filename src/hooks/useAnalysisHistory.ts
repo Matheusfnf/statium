@@ -13,7 +13,7 @@ export interface HistoryEntry {
   numTreatments: number;
   numReps: number;
   treatmentNames: string[];
-  data: number[][];
+  data: (number | null)[][];
   anovaResult: AnovaResult;
   tukeyResult: TukeyResult | null;
   scottKnottResult: ScottKnottResult | null;
@@ -89,7 +89,7 @@ export function useAnalysisHistory() {
       numTreatments: number;
       numReps: number;
       treatmentNames: string[];
-      data: number[][];
+      data: (number | null)[][];
       anovaResult: AnovaResult;
       tukeyResult: TukeyResult | null;
       scottKnottResult: ScottKnottResult | null;

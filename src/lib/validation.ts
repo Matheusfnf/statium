@@ -17,7 +17,7 @@ export interface ValidationResult {
  * Errors prevent analysis. Warnings are informational (outliers).
  */
 export function validateGrid(
-  data: number[][],
+  data: (number | null)[][],
   treatmentNames: string[]
 ): ValidationResult {
   const errors: ValidationIssue[] = [];
@@ -35,30 +35,16 @@ export function validateGrid(
   // Check each treatment row
   for (let t = 0; t < data.length; t++) {
     const row = data[t];
-    const nonZeroCount = row.filter((v) => v !== 0).length;
+    const validCount = row.filter((v) => v !== null).length;
     const name = treatmentNames[t] || `Trat ${t + 1}`;
 
-    // If row is partially filled, mark empty cells as errors
-    if (nonZeroCount > 0 && nonZeroCount < row.length) {
-      for (let r = 0; r < row.length; r++) {
-        if (row[r] === 0) {
-          errors.push({
-            treatIdx: t,
-            repIdx: r,
-            type: 'error',
-            message: `Célula vazia em "${name}", Rep ${r + 1}`,
-          });
-        }
-      }
-    }
-
-    // If entire row is zero, that's an error
-    if (nonZeroCount === 0) {
+    // Needs at least 2 values per treatment for ANOVA/variance
+    if (validCount < 2) {
       errors.push({
         treatIdx: t,
         repIdx: -1,
         type: 'error',
-        message: `Tratamento "${name}" sem dados`,
+        message: `Tratamento "${name}" precisa de pelo menos 2 dados válidos.`,
       });
     }
   }
@@ -66,26 +52,27 @@ export function validateGrid(
   // Check for outliers (values > 3 standard deviations from treatment mean)
   for (let t = 0; t < data.length; t++) {
     const row = data[t];
-    const nonZero = row.filter((v) => v !== 0);
-    if (nonZero.length < 3) continue; // Need at least 3 values for meaningful outlier detection
+    const validCells = row.filter((v) => v !== null) as number[];
+    if (validCells.length < 3) continue; // Need at least 3 values for meaningful outlier detection
 
-    const mean = nonZero.reduce((a, b) => a + b, 0) / nonZero.length;
+    const mean = validCells.reduce((a, b) => a + b, 0) / validCells.length;
     const variance =
-      nonZero.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (nonZero.length - 1);
+      validCells.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (validCells.length - 1);
     const sd = Math.sqrt(variance);
     const name = treatmentNames[t] || `Trat ${t + 1}`;
 
     if (sd === 0) continue;
 
     for (let r = 0; r < row.length; r++) {
-      if (row[r] !== 0) {
-        const zScore = Math.abs((row[r] - mean) / sd);
+      const val = row[r];
+      if (val !== null) {
+        const zScore = Math.abs((val - mean) / sd);
         if (zScore > 3) {
           warnings.push({
             treatIdx: t,
             repIdx: r,
             type: 'warning',
-            message: `Possível outlier em "${name}", Rep ${r + 1} (valor: ${row[r]}, z-score: ${zScore.toFixed(1)})`,
+            message: `Possível outlier em "${name}", Rep ${r + 1} (valor: ${val}, z-score: ${zScore.toFixed(1)})`,
           });
         }
       }

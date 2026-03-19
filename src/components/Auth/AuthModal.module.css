@@ -15,29 +15,65 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: 90%;
-  max-width: 400px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.8), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
+  max-width: 420px;
+  background: rgba(17, 24, 39, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 40px rgba(99, 220, 190, 0.1);
   z-index: 1000;
   overflow: hidden;
+  animation: modalEnter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes modalEnter {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: var(--space-lg);
-  border-bottom: 1px solid var(--border);
+  padding: var(--space-xl) var(--space-xl) var(--space-md);
 }
 
-.header h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
+.titleWrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.logoIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--gradient-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: var(--bg-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 700;
   color: var(--text-primary);
+  margin: 0 0 4px 0;
+  line-height: 1.2;
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
   margin: 0;
 }
+
+
 
 .closeBtn {
   background: none;
@@ -59,10 +95,10 @@
 }
 
 .form {
-  padding: var(--space-lg);
+  padding: 0 var(--space-xl) var(--space-xl);
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-lg);
 }
 
 .field {
@@ -73,15 +109,16 @@
 
 .field label {
   font-size: 0.85rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-secondary);
+  margin-left: 2px;
 }
 
 .input {
-  background: var(--bg-dark);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-secondary);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 12px 16px;
   color: var(--text-primary);
   font-size: 0.95rem;
   transition: all 0.2s ease;
@@ -90,26 +127,31 @@
 
 .input:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(99, 220, 190, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-dim);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
 }
 
 .submitBtn {
   margin-top: var(--space-sm);
-  background: var(--primary);
-  color: #040712;
+  background: var(--gradient-primary);
+  color: var(--bg-primary);
   border: none;
-  border-radius: var(--radius-md);
-  padding: 12px;
-  font-size: 0.95rem;
-  font-weight: 600;
+  border-radius: var(--radius-full);
+  padding: 14px;
+  font-size: 1rem;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .submitBtn:hover:not(:disabled) {
-  background: var(--primary-glow);
-  box-shadow: 0 0 15px rgba(99, 220, 190, 0.3);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
 }
 
 .submitBtn:disabled {
@@ -127,17 +169,17 @@
 }
 
 .footer {
-  margin-top: var(--space-md);
+  margin-top: var(--space-sm);
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text-tertiary);
 }
 
 .linkBtn {
   background: none;
   border: none;
-  color: var(--primary);
-  font-weight: 500;
+  color: var(--accent-primary);
+  font-weight: 600;
   cursor: pointer;
   padding: 0;
   text-decoration: underline;
@@ -146,5 +188,6 @@
 }
 
 .linkBtn:hover {
-  text-decoration-color: var(--primary);
+  text-decoration-color: var(--accent-primary);
+  color: var(--accent-primary-hover);
 }

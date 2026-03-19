@@ -11,6 +11,7 @@ import {
   WidthType,
   BorderStyle,
   AlignmentType,
+  ImageRun,
 } from 'docx';
 import type { AnovaResult, TukeyResult, ScottKnottResult } from '@/lib/statistics';
 import { formatNumber } from '@/lib/statistics';
@@ -38,7 +39,7 @@ export function exportPDF(
   tukeyResult: TukeyResult | null,
   scottKnottResult: ScottKnottResult | null,
   comparisonMethod: 'tukey' | 'scott-knott',
-  data: number[][],
+  data: (number | null)[][],
   alpha: number
 ) {
   const doc = new jsPDF();
@@ -90,6 +91,8 @@ export function exportPDF(
     ['Média Geral', formatNumber(anovaResult.overallMean, 4)],
     ['CV (%)', formatNumber(anovaResult.cv, 2)],
     ['QM Resíduo', formatNumber(anovaResult.mse, 4)],
+    ['Normalidade (S-W)', anovaResult.assumptions.normality.passed ? 'Atendida' : 'Não Atendida'],
+    ['Homocedasticidade', anovaResult.assumptions.homoscedasticity.passed ? 'Atendida' : 'Não Atendida'],
   ];
 
   autoTable(doc, {
@@ -160,7 +163,7 @@ export function exportPDF(
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(80, 80, 80);
       doc.text(
-        `DMS (5%) = ${formatNumber(tukeyResult.dms05, 4)}   |   DMS (1%) = ${formatNumber(tukeyResult.dms01, 4)}`,
+        `DMS (5%) = ${tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (Tukey-Kramer)'}   |   DMS (1%) = ${tukeyResult.dms01 !== null ? formatNumber(tukeyResult.dms01, 4) : 'Variável (Tukey-Kramer)'}`,
         14,
         y + 4
       );
@@ -225,6 +228,8 @@ export function exportCSV(
   lines.push(`Média Geral;${formatNumber(anovaResult.overallMean, 4)}`);
   lines.push(`CV (%);${formatNumber(anovaResult.cv, 2)}`);
   lines.push(`QM Resíduo;${formatNumber(anovaResult.mse, 4)}`);
+  lines.push(`Normalidade (Shapiro-Wilk);${anovaResult.assumptions.normality.passed ? 'Atendida' : 'Não Atendida'}`);
+  lines.push(`Homocedasticidade (Bartlett);${anovaResult.assumptions.homoscedasticity.passed ? 'Atendida' : 'Não Atendida'}`);
   lines.push('');
 
   // ANOVA Table
@@ -257,8 +262,8 @@ export function exportCSV(
     lines.push(`COMPARAÇÃO DE MÉDIAS — ${methodName}`);
 
     if (comparisonMethod === 'tukey' && tukeyResult) {
-      lines.push(`DMS (5%);${formatNumber(tukeyResult.dms05, 4)}`);
-      lines.push(`DMS (1%);${formatNumber(tukeyResult.dms01, 4)}`);
+      lines.push(`DMS (5%);${tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (Tukey-Kramer)'}`);
+      lines.push(`DMS (1%);${tukeyResult.dms01 !== null ? formatNumber(tukeyResult.dms01, 4) : 'Variável (Tukey-Kramer)'}`);
     }
 
     lines.push('Tratamento;Média;Grupo');
@@ -332,7 +337,7 @@ export async function exportMeansWord(
             borders: { top: { style: BorderStyle.SINGLE, size: 1 } },
           }),
           new TableCell({ 
-            children: [new Paragraph(formatNumber(tukeyResult.dms05, 4))],
+            children: [new Paragraph(tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (TK)')],
             borders: { top: { style: BorderStyle.SINGLE, size: 1 } },
           }),
         ],
@@ -500,7 +505,16 @@ export async function exportAnovaWord(
                 size: 18,
               }),
             ],
-            spacing: { before: 200 },
+            spacing: { before: 200, after: 100 },
+          }),
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `Premissas do Modelo: A normalidade dos resíduos (Shapiro-Wilk) foi ${anovaResult.assumptions.normality.passed ? 'atendida' : 'não atendida'}. A homogeneidade de variâncias (Bartlett) foi ${anovaResult.assumptions.homoscedasticity.passed ? 'atendida' : 'não atendida'}.`,
+                size: 18,
+                italics: true
+              }),
+            ],
           }),
         ],
       },
@@ -509,4 +523,53 @@ export async function exportAnovaWord(
 
   const blob = await Packer.toBlob(doc);
   downloadBlob(blob, `anova-artigo-${new Date().toISOString().slice(0, 10)}.docx`);
+}
+
+export async function exportChartWord(
+  base64Image: string,
+  variableName: string
+) {
+  // Convert base64 to Uint8Array
+  const base64Data = base64Image.replace(/^data:image\/(png|jpeg);base64,/, '');
+  const binaryString = atob(base64Data);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  const doc = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `Figura 1: Gráfico de médias para a variável ${variableName}.`,
+                bold: true,
+              }),
+            ],
+            spacing: { after: 200 },
+            alignment: AlignmentType.CENTER,
+          }),
+          new Paragraph({
+            children: [
+              new ImageRun({
+                data: bytes,
+                type: 'png',
+                transformation: {
+                  width: 600,
+                  height: 300,
+                },
+              }),
+            ],
+            alignment: AlignmentType.CENTER,
+          }),
+        ],
+      },
+    ],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  downloadBlob(blob, `grafico-artigo-${new Date().toISOString().slice(0, 10)}.docx`);
 }

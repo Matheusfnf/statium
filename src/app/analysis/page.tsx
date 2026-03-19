@@ -7,6 +7,7 @@ import {
   tukeyHSD,
   scottKnott,
   formatNumber,
+  anovaFatorialDuplo,
 } from '@/lib/statistics';
 import type { AnovaResult, TukeyResult, ScottKnottResult, DesignType } from '@/lib/statistics';
 import { exportPDF, exportCSV, exportMeansWord, exportAnovaWord } from '@/lib/export';
@@ -16,6 +17,8 @@ import Header from '@/components/Layout/Header';
 import HistoryPanel from '@/components/AnalysisHistory/HistoryPanel';
 import styles from './analysis.module.css';
 import ResultsChart from './ResultsChart';
+import { TidyDataGrid } from './TidyDataGrid';
+import type { TidyDataRow, TidyDataMapping, TidyRawState } from './TidyDataGrid';
 
 const STEPS = [
   { label: 'Tipo de Análise', icon: '🧪' },
@@ -43,6 +46,12 @@ export default function AnalysisPage() {
   const [tukeyResult, setTukeyResult] = useState<TukeyResult | null>(null);
   const [scottKnottResult, setScottKnottResult] = useState<ScottKnottResult | null>(null);
   const [comparisonMethod, setComparisonMethod] = useState<'none' | 'tukey' | 'scott-knott'>('none');
+  const [experimentType, setExperimentType] = useState<'simple' | 'factorial'>('simple');
+  const [tidyDataFull, setTidyDataFull] = useState<{
+    data: TidyDataRow[];
+    mapping: TidyDataMapping;
+    rawState?: TidyRawState;
+  } | null>(null);
   const [testSelected, setTestSelected] = useState(false);
   const [alpha, setAlpha] = useState(0.05);
   const [customAlpha, setCustomAlpha] = useState('');
@@ -50,17 +59,22 @@ export default function AnalysisPage() {
   // UI state
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showSavedToast, setShowSavedToast] = useState(false);
+  const [is3dChart, setIs3dChart] = useState(false);
 
   const tableRef = useRef<HTMLTableElement>(null);
   const history = useAnalysisHistory();
 
   // Parsed data for logic (converts strings to numbers, invalid strings to 0)
+  const chartRef = useRef<import('./ResultsChart').ResultsChartRef>(null);
+
   const parsedData = useMemo(() => {
     return data.map((row) =>
       row.map((val) => {
         if (typeof val === 'number') return val;
-        const num = parseFloat(String(val).replace(',', '.'));
-        return isNaN(num) ? 0 : num;
+        const strVal = String(val).trim();
+        if (strVal === '') return null; // Accept missing data as null
+        const num = parseFloat(strVal.replace(',', '.'));
+        return isNaN(num) ? null : num;
       })
     );
   }, [data]);
@@ -92,6 +106,11 @@ export default function AnalysisPage() {
     }
     if (isNaN(nr) || nr < 2) {
       alert(design === 'DIC' ? 'O número de repetições deve ser no mínimo 2.' : 'O número de blocos deve ser no mínimo 2.');
+      return;
+    }
+
+    if (experimentType === 'factorial') {
+      setCurrentStep(2);
       return;
     }
 
@@ -138,10 +157,12 @@ export default function AnalysisPage() {
       const text = e.clipboardData.getData('text');
       const rows = text.split('\n').filter((r) => r.trim().length > 0);
 
-      const pastedData = rows.map((row) =>
+      const pastedData: (number | string | null)[][] = rows.map((row) =>
         row.split('\t').map((cell) => {
-          const num = parseFloat(cell.trim().replace(',', '.'));
-          return isNaN(num) ? 0 : num;
+          const str = cell.trim();
+          if (str === '') return null;
+          const num = parseFloat(str.replace(',', '.'));
+          return isNaN(num) ? null : num;
         })
       );
 
@@ -152,9 +173,9 @@ export default function AnalysisPage() {
         setNumTreatments(newTreatments);
         setNumReps(newReps);
 
-        // Pad rows to same length
+        // Pad rows to same length with empty strings
         const padded = pastedData.map((row) => {
-          while (row.length < newReps) row.push(0);
+          while (row.length < newReps) row.push('');
           return row;
         });
 
@@ -206,8 +227,14 @@ export default function AnalysisPage() {
     setTukeyResult(null);
     setScottKnottResult(null);
 
-    const treatRow = result.table.find((r) => r.source === 'Tratamento' || r.source === 'Tratamentos');
-    const isSignificant = treatRow?.pValue !== null && treatRow?.pValue !== undefined && treatRow.pValue <= alpha;
+    let isSignificant = false;
+    if ('factorialSignificance' in result) {
+      const fs = (result as any).factorialSignificance;
+      isSignificant = fs.factorA || fs.factorB || fs.interaction;
+    } else {
+      const treatRow = result.table.find((r) => r.source === 'Tratamento' || r.source === 'Tratamentos');
+      isSignificant = treatRow?.pValue !== null && treatRow?.pValue !== undefined && treatRow.pValue <= alpha;
+    }
 
     // If significant, go to post-hoc selection. Otherwise, go straight to results.
     if (isSignificant) {
@@ -215,7 +242,29 @@ export default function AnalysisPage() {
     } else {
       setCurrentStep(4);
     }
-  }, [data, design, treatmentNames, alpha, validation, variableName]);
+  }, [data, design, treatmentNames, alpha, validation, variableName, parsedData]);
+
+  const handleAnalyzeFactorial = useCallback((mappedData: TidyDataRow[], mapping: TidyDataMapping, rawState: TidyRawState) => {
+    // Save to state
+    setTidyDataFull({ data: mappedData, mapping, rawState });
+    
+    // Run factorial ANOVA
+    const result = anovaFatorialDuplo(mappedData, design as 'DIC' | 'DBC', alpha);
+    setAnovaResult(result);
+
+    setComparisonMethod('none');
+    setTestSelected(false);
+    setTukeyResult(null);
+    setScottKnottResult(null);
+
+    const isSignificant = result.factorialSignificance.factorA || result.factorialSignificance.factorB || result.factorialSignificance.interaction;
+
+    if (isSignificant) {
+      setCurrentStep(3);
+    } else {
+      setCurrentStep(4);
+    }
+  }, [design, alpha]);
 
   // Run post-hoc test (called from results page)
   const handleRunPostHoc = useCallback((method: 'tukey' | 'scott-knott') => {
@@ -265,6 +314,12 @@ export default function AnalysisPage() {
     if (!anovaResult) return;
     exportAnovaWord(anovaResult, variableName, alpha);
   }, [anovaResult, variableName, alpha]);
+
+  const handleExportChartWord = useCallback(() => {
+    if (chartRef.current) {
+      chartRef.current.exportToWord(variableName || 'Variável');
+    }
+  }, [variableName]);
 
   // Save to history
   const handleSave = useCallback(async () => {
@@ -318,13 +373,32 @@ export default function AnalysisPage() {
       setScottKnottResult(entry.scottKnottResult);
       setComparisonMethod(entry.comparisonMethod);
       setAlpha(entry.alpha ?? 0.05);
+      
+      const isFactorial = entry.anovaResult && 'factorialSignificance' in entry.anovaResult;
+      setExperimentType(isFactorial ? 'factorial' : 'simple');
+      
       setCurrentStep(4);
       setHistoryOpen(false);
     },
     []
   );
 
-  const canAnalyze = data.length > 0 && data.some((r) => r.some((v) => v !== 0));
+  // Load from URL if historyId is present
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const historyId = params.get('historyId');
+      if (historyId && history.entries.length > 0) {
+        const entry = history.get(historyId);
+        if (entry) {
+          handleLoadHistory(entry);
+          window.history.replaceState({}, '', '/analysis');
+        }
+      }
+    }
+  }, [history.entries, history.get, handleLoadHistory]);
+
+  const canAnalyze = parsedData.length > 0 && parsedData.some((r) => r.some((v) => v !== null));
 
   return (
     <>
@@ -467,7 +541,32 @@ export default function AnalysisPage() {
               Configuração — Comparação de Médias
             </h2>
 
-            <div className={styles.designToggle}>
+            {/* Experiment Type Toggle */}
+            <div className={styles.field} style={{ marginBottom: 'var(--space-xl)' }}>
+              <label className={styles.label}>Tipo de Experimento</label>
+              <div className={styles.designToggle}>
+                <button
+                  className={`${styles.designOption} ${experimentType === 'simple' ? styles.designOptionActive : ''}`}
+                  onClick={() => setExperimentType('simple')}
+                >
+                  <div className={styles.designOptionTitle}>Simples (1 Fator)</div>
+                  <div className={styles.designOptionDesc}>
+                    Entrada via grade clássica (Tratamentos x Repetições)
+                  </div>
+                </button>
+                <button
+                  className={`${styles.designOption} ${experimentType === 'factorial' ? styles.designOptionActive : ''}`}
+                  onClick={() => setExperimentType('factorial')}
+                >
+                  <div className={styles.designOptionTitle}>Fatorial (2 ou + Fatores)</div>
+                  <div className={styles.designOptionDesc}>
+                    Entrada via colunas (Tidy Data) diretamente do Excel
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.designToggle} style={{ marginBottom: 'var(--space-lg)' }}>
               <button
                 className={`${styles.designOption} ${design === 'DIC' ? styles.designOptionActive : ''
                   }`}
@@ -503,32 +602,40 @@ export default function AnalysisPage() {
               </span>
             </div>
 
-            <div className={styles.formGrid}>
-              <div className={styles.field}>
-                <label className={styles.label}>Nº de Tratamentos</label>
-                <input
-                  type="number"
-                  className={styles.input}
-                  min={2}
-                  max={20}
-                  value={numTreatments}
-                  onChange={(e) => setNumTreatments(e.target.value)}
-                />
+            {experimentType === 'simple' ? (
+              <div className={styles.formGrid}>
+                <div className={styles.field}>
+                  <label className={styles.label}>Nº de Tratamentos</label>
+                  <input
+                    type="number"
+                    className={styles.input}
+                    min={2}
+                    max={20}
+                    value={numTreatments}
+                    onChange={(e) => setNumTreatments(e.target.value)}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.label}>
+                    {design === 'DIC' ? 'Nº de Repetições' : 'Nº de Blocos'}
+                  </label>
+                  <input
+                    type="number"
+                    className={styles.input}
+                    min={2}
+                    max={30}
+                    value={numReps}
+                    onChange={(e) => setNumReps(e.target.value)}
+                  />
+                </div>
               </div>
-              <div className={styles.field}>
-                <label className={styles.label}>
-                  {design === 'DIC' ? 'Nº de Repetições' : 'Nº de Blocos'}
-                </label>
-                <input
-                  type="number"
-                  className={styles.input}
-                  min={2}
-                  max={30}
-                  value={numReps}
-                  onChange={(e) => setNumReps(e.target.value)}
-                />
+            ) : (
+              <div style={{ marginBottom: 'var(--space-lg)', padding: 'var(--space-md)', background: 'rgba(99, 220, 190, 0.05)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(99, 220, 190, 0.2)' }}>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  <strong>Atenção:</strong> Na próxima etapa, você deverá colar sua planilha estruturada em colunas (Fator A, Fator B, Bloco, Resposta) e mapear cada termo.
+                </p>
               </div>
-            </div>
+            )}
 
             <div className={styles.field} style={{ marginBottom: 'var(--space-lg)' }}>
               <label className={styles.label}>Nível de significância (α)</label>
@@ -580,7 +687,7 @@ export default function AnalysisPage() {
         )}
 
         {/* Step 2: Data Input */}
-        {currentStep === 2 && (
+        {currentStep === 2 && experimentType === 'simple' && (
           <div className={styles.card}>
             <h2 className={styles.cardTitle}>
               <span className={styles.cardTitleIcon}>📊</span>
@@ -666,6 +773,17 @@ export default function AnalysisPage() {
                 Selecionar Pós-teste →
               </button>
             </div>
+          </div>
+        )}
+
+        {currentStep === 2 && experimentType === 'factorial' && (
+          <div className={styles.fadeIn}>
+            <TidyDataGrid
+              design={design as 'DIC' | 'DBC'}
+              onAnalyze={handleAnalyzeFactorial}
+              onBack={() => setCurrentStep(1)}
+              initialState={tidyDataFull?.rawState}
+            />
           </div>
         )}
 
@@ -768,6 +886,57 @@ export default function AnalysisPage() {
               </div>
             </div>
 
+            {/* Assumptions Panel */}
+            <div className={styles.card} style={{ marginBottom: 'var(--space-lg)' }}>
+              <h2 className={styles.cardTitle} style={{ marginBottom: 'var(--space-md)' }}>
+                <span className={styles.cardTitleIcon}>🔍</span>
+                Premissas do Modelo
+              </h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-md)' }}>
+                {/* Normality */}
+                <div style={{
+                  padding: 'var(--space-md)',
+                  borderRadius: 'var(--radius-md)',
+                  background: anovaResult.assumptions.normality.passed ? 'rgba(99, 220, 190, 0.08)' : 'rgba(248, 113, 113, 0.08)',
+                  border: `1px solid ${anovaResult.assumptions.normality.passed ? 'rgba(99, 220, 190, 0.25)' : 'rgba(248, 113, 113, 0.25)'}`
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>{anovaResult.assumptions.normality.passed ? '✅' : '❌'}</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>Normalidade dos Resíduos</strong>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Teste de {anovaResult.assumptions.normality.name} (p = {formatNumber(anovaResult.assumptions.normality.pValue, 4)})
+                  </p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                    {anovaResult.assumptions.normality.passed
+                      ? 'Os resíduos seguem distribuição normal, satisfazendo a premissa.'
+                      : 'Os resíduos desviam da normalidade. A ANOVA pode estar comprometida.'}
+                  </p>
+                </div>
+
+                {/* Homoscedasticity */}
+                <div style={{
+                  padding: 'var(--space-md)',
+                  borderRadius: 'var(--radius-md)',
+                  background: anovaResult.assumptions.homoscedasticity.passed ? 'rgba(99, 220, 190, 0.08)' : 'rgba(248, 113, 113, 0.08)',
+                  border: `1px solid ${anovaResult.assumptions.homoscedasticity.passed ? 'rgba(99, 220, 190, 0.25)' : 'rgba(248, 113, 113, 0.25)'}`
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>{anovaResult.assumptions.homoscedasticity.passed ? '✅' : '❌'}</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>Homogeneidade de Variâncias</strong>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Teste de {anovaResult.assumptions.homoscedasticity.name} (p = {formatNumber(anovaResult.assumptions.homoscedasticity.pValue, 4)})
+                  </p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                    {anovaResult.assumptions.homoscedasticity.passed
+                      ? 'As variâncias são homogêneas, satisfazendo a premissa.'
+                      : 'As variâncias são heterogêneas (heterocedasticidade). A precisão do teste F é reduzida.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* ANOVA Table */}
             <div className={styles.card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-md)' }}>
@@ -833,6 +1002,23 @@ export default function AnalysisPage() {
 
               {/* Interpretation */}
               {(() => {
+                if (experimentType === 'factorial') {
+                  const fs = (anovaResult as any).factorialSignificance;
+                  const anySignificant = fs?.factorA || fs?.factorB || fs?.interaction;
+                  return (
+                    <div style={{
+                      marginTop: 'var(--space-lg)', padding: 'var(--space-md) var(--space-lg)',
+                      borderRadius: 'var(--radius-md)', background: anySignificant ? 'rgba(99, 220, 190, 0.08)' : 'rgba(248, 113, 113, 0.08)',
+                      border: `1px solid ${anySignificant ? 'rgba(99, 220, 190, 0.25)' : 'rgba(248, 113, 113, 0.25)'}`,
+                      fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-secondary)',
+                    }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>📝 Interpretação Fatorial:</strong>{' '}
+                      A tabela ANOVA foi desdobrada nos efeitos principais e na Interação.
+                      Consulte a coluna <strong>p-valor</strong> ou <strong>Sig.</strong> da tabela acima para avaliar quais fatores influenciaram significativamente a resposta <em>{variableName}</em>.
+                    </div>
+                  );
+                }
+
                 const treatRow = anovaResult.table.find((r) => r.source === 'Tratamento' || r.source === 'Tratamentos');
                 const isSignificant = treatRow?.pValue !== null && treatRow?.pValue !== undefined && treatRow.pValue <= alpha;
                 const sigLevel = treatRow?.significance;
@@ -883,8 +1069,8 @@ export default function AnalysisPage() {
                 <div className={styles.alphaSelect}>
                   {comparisonMethod === 'tukey' && tukeyResult ? (
                     <>
-                      Teste de Tukey (HSD) — DMS (5%) = {formatNumber(tukeyResult.dms05, 4)} &nbsp;|&nbsp;
-                      DMS (1%) = {formatNumber(tukeyResult.dms01, 4)}
+                      Teste de Tukey (HSD) — DMS (5%) = {tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (Tukey-Kramer)'} &nbsp;|&nbsp;
+                      DMS (1%) = {tukeyResult.dms01 !== null ? formatNumber(tukeyResult.dms01, 4) : 'Variável (Tukey-Kramer)'}
                     </>
                   ) : comparisonMethod === 'scott-knott' && scottKnottResult ? (
                     <>Teste de Scott-Knott — {scottKnottResult.numGroups} grupo(s) identificado(s)</>
@@ -932,12 +1118,32 @@ export default function AnalysisPage() {
 
             {/* Chart */}
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>
-                <span className={styles.cardTitleIcon}>📈</span>
-                Gráfico de Médias
-              </h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-md)' }}>
+                <h2 className={styles.cardTitle} style={{ marginBottom: 0 }}>
+                  <span className={styles.cardTitleIcon}>📈</span>
+                  Gráfico de Médias
+                </h2>
+                <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => setIs3dChart(!is3dChart)}
+                    style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    {is3dChart ? '🔄 Visão 2D' : '🧊 Visão 3D'}
+                  </button>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={handleExportChartWord}
+                    style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    📝 Word (Artigo)
+                  </button>
+                </div>
+              </div>
               <div className={styles.chartContainer}>
                 <ResultsChart
+                  ref={chartRef}
+                  is3d={is3dChart}
                   anovaResult={anovaResult}
                   groups={
                     comparisonMethod === 'tukey'
@@ -965,8 +1171,14 @@ export default function AnalysisPage() {
               <button
                 className={styles.btnSecondary}
                 onClick={() => {
-                  const treatRow = anovaResult.table.find((r) => r.source === 'Tratamento' || r.source === 'Tratamentos');
-                  const isSignificant = treatRow?.pValue !== null && treatRow?.pValue !== undefined && treatRow.pValue < alpha;
+                  let isSignificant = false;
+                  if (experimentType === 'factorial') {
+                    const fs = (anovaResult as any).factorialSignificance;
+                    isSignificant = fs?.factorA || fs?.factorB || fs?.interaction;
+                  } else {
+                    const treatRow = anovaResult.table.find((r) => r.source === 'Tratamento' || r.source === 'Tratamentos');
+                    isSignificant = treatRow?.pValue !== null && treatRow?.pValue !== undefined && treatRow.pValue < alpha;
+                  }
                   setCurrentStep(isSignificant ? 3 : 2);
                 }}
               >

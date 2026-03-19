@@ -6,3 +6,7 @@ export { scottKnott } from './scott-knott';
 export type { ScottKnottResult, ScottKnottGroup } from './scott-knott';
 export { fPValue, fCritical, qCritical, chiSquaredPValue } from './distributions';
 export { mean, variance, standardDeviation, standardError, formatNumber, coefficientOfVariation } from './utils';
+export { bartlettTest, shapiroWilk } from './assumptions';
+export type { AssumptionResult } from './assumptions';
+export { anovaFatorialDuplo } from './factorialAnova';
+export type { FactorialAnovaResult } from './factorialAnova';

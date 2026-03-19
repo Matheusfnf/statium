@@ -28,12 +28,12 @@ export interface ScottKnottResult {
  */
 export function scottKnott(
   anovaResult: AnovaResult,
-  data: number[][],
+  data: (number | null)[][],
   alpha: number = 0.05
 ): ScottKnottResult {
-  const { mse, dfError, treatmentMeans, treatmentNames } = anovaResult;
+  const { mse, dfError, treatmentMeans, treatmentCounts, treatmentNames } = anovaResult;
   const k = treatmentMeans.length;
-  const r = data[0].length;
+  const r = treatmentCounts.reduce((acc, curr) => acc + curr, 0) / k; // use average r if unbalanced
 
   // Create sorted indices by mean (descending)
   const sorted = treatmentMeans

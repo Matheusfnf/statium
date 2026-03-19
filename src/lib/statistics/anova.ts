@@ -6,6 +6,7 @@
 
 import { mean, sum, flattenMatrix, coefficientOfVariation } from './utils';
 import { fPValue, fCritical } from './distributions';
+import { bartlettTest, shapiroWilk, AssumptionResult } from './assumptions';
 
 export type DesignType = 'DIC' | 'DBC';
 
@@ -21,6 +22,11 @@ export interface AnovaRow {
   significance: string;  // **, *, ns
 }
 
+export interface AssumptionsResultMap {
+  normality: AssumptionResult;
+  homoscedasticity: AssumptionResult;
+}
+
 export interface AnovaResult {
   table: AnovaRow[];
   overallMean: number;
@@ -28,22 +34,27 @@ export interface AnovaResult {
   mse: number;           // Mean Square Error
   dfError: number;       // Degrees of freedom for error
   treatmentMeans: number[];
+  treatmentCounts: number[]; // used for tukey-kramer
   treatmentNames: string[];
   design: DesignType;
+  assumptions: AssumptionsResultMap;
 }
 
 /**
  * Perform ANOVA for a Completely Randomized Design (DIC)
- * @param data Matrix [treatments][repetitions]
+ * @param data Matrix [treatments][repetitions], null represents missing data
  * @param treatmentNames Names of treatments
  */
 export function anovaDIC(
-  data: number[][],
+  data: (number | null)[][],
   treatmentNames: string[],
   alpha: number = 0.05
 ): AnovaResult {
   const k = data.length;         // number of treatments
-  const allValues = flattenMatrix(data);
+  
+  // Clean data into numeric format only, separating groups
+  const cleanGroups = data.map(row => row.filter(v => v !== null) as number[]);
+  const allValues = flattenMatrix(cleanGroups);
   const N = allValues.length;
   const grandMean = mean(allValues);
 
@@ -54,11 +65,14 @@ export function anovaDIC(
   const ssTotal = allValues.reduce((acc, v) => acc + v ** 2, 0) - C;
 
   // Treatment Sum of Squares
-  const treatmentMeans = data.map(row => mean(row));
+  const treatmentMeans = cleanGroups.map(row => mean(row) || 0);
+  const treatmentCounts = cleanGroups.map(row => row.length);
   let ssTreatment = 0;
   for (let i = 0; i < k; i++) {
-    const ni = data[i].length;
-    ssTreatment += ni * (treatmentMeans[i] - grandMean) ** 2;
+    const ni = treatmentCounts[i];
+    if (ni > 0) {
+      ssTreatment += ni * (treatmentMeans[i] - grandMean) ** 2;
+    }
   }
 
   // Error Sum of Squares
@@ -85,6 +99,20 @@ export function anovaDIC(
   }
 
   const cv = coefficientOfVariation(grandMean, msError);
+
+  // Compute Assumptions
+  // 1. Homoscedasticity (Bartlett)
+  const homoscedasticity = bartlettTest(cleanGroups, alpha);
+  
+  // 2. Normality (Shapiro-Wilk) of Residuals
+  // residual = Y_ij - Mean_i
+  const residuals: number[] = [];
+  for (let i = 0; i < k; i++) {
+    for (let j = 0; j < cleanGroups[i].length; j++) {
+      residuals.push(cleanGroups[i][j] - treatmentMeans[i]);
+    }
+  }
+  const normality = shapiroWilk(residuals, alpha);
 
   const table: AnovaRow[] = [
     {
@@ -129,25 +157,33 @@ export function anovaDIC(
     mse: msError,
     dfError,
     treatmentMeans,
+    treatmentCounts,
     treatmentNames,
     design: 'DIC',
+    assumptions: {
+      homoscedasticity,
+      normality
+    }
   };
 }
 
 /**
  * Perform ANOVA for a Randomized Complete Block Design (DBC)
- * @param data Matrix [treatments][blocks] - each row is a treatment, each column is a block
+ * @param data Matrix [treatments][blocks] - each row is a treatment, each column is a block, null represents missing values
  * @param treatmentNames Names of treatments
  */
 export function anovaDBC(
-  data: number[][],
+  data: (number | null)[][],
   treatmentNames: string[],
   alpha: number = 0.05
 ): AnovaResult {
   const k = data.length;         // number of treatments
-  const b = data[0].length;      // number of blocks
-  const N = k * b;
-  const allValues = flattenMatrix(data);
+  const b = data[0].length;      // maximum number of blocks
+  
+  // Extract all valid values for general stats
+  const cleanGroups = data.map(row => row.filter(v => v !== null) as number[]);
+  const allValues = flattenMatrix(cleanGroups);
+  const N = allValues.length;
   const grandMean = mean(allValues);
 
   // Correction factor
@@ -156,19 +192,25 @@ export function anovaDBC(
   // Total Sum of Squares
   const ssTotal = allValues.reduce((acc, v) => acc + v ** 2, 0) - C;
 
-  // Treatment Sum of Squares
-  const treatmentMeans = data.map(row => mean(row));
+  // Treatment Sum of Squares (approximation for unbalanced, but assuming generally balanced DBC)
+  const treatmentMeans = cleanGroups.map(row => mean(row) || 0);
+  const treatmentCounts = cleanGroups.map(row => row.length);
   let ssTreatment = 0;
   for (let i = 0; i < k; i++) {
-    ssTreatment += b * (treatmentMeans[i] - grandMean) ** 2;
+    const ni = treatmentCounts[i];
+    if (ni > 0) {
+      ssTreatment += ni * (treatmentMeans[i] - grandMean) ** 2;
+    }
   }
 
   // Block Sum of Squares
   let ssBlock = 0;
   for (let j = 0; j < b; j++) {
-    const blockValues = data.map(row => row[j]);
-    const blockMean = mean(blockValues);
-    ssBlock += k * (blockMean - grandMean) ** 2;
+    const blockValues = data.map(row => row[j]).filter(v => v !== null) as number[];
+    if (blockValues.length > 0) {
+      const blockMean = mean(blockValues) || 0;
+      ssBlock += blockValues.length * (blockMean - grandMean) ** 2;
+    }
   }
 
   // Error Sum of Squares
@@ -178,7 +220,8 @@ export function anovaDBC(
   const dfTotal = N - 1;
   const dfTreatment = k - 1;
   const dfBlock = b - 1;
-  const dfError = (k - 1) * (b - 1);
+  // Approximation for potentially unbalanced DBC: N - 1 - (k-1) - (b-1)
+  const dfError = dfTotal - dfTreatment - dfBlock;
 
   // Mean Squares
   const msTreatment = ssTreatment / dfTreatment;
@@ -207,6 +250,25 @@ export function anovaDBC(
   }
 
   const cv = coefficientOfVariation(grandMean, msError);
+
+  // Compute Assumptions
+  // 1. Homoscedasticity (Bartlett)
+  const homoscedasticity = bartlettTest(cleanGroups, alpha);
+  
+  // 2. Normality (Shapiro-Wilk) of Residuals
+  // residual = Y_ij - MeanTreat_i - MeanBlock_j + GrandMean (classical approximation)
+  const residuals: number[] = [];
+  for (let i = 0; i < k; i++) {
+    for (let j = 0; j < b; j++) {
+      const val = data[i][j];
+      if (val !== null) {
+        const blockValues = data.map(row => row[j]).filter(v => v !== null) as number[];
+        const blockMean = mean(blockValues) || grandMean;
+        residuals.push(val - treatmentMeans[i] - blockMean + grandMean);
+      }
+    }
+  }
+  const normality = shapiroWilk(residuals, alpha);
 
   const table: AnovaRow[] = [
     {
@@ -262,7 +324,12 @@ export function anovaDBC(
     mse: msError,
     dfError,
     treatmentMeans,
+    treatmentCounts,
     treatmentNames,
     design: 'DBC',
+    assumptions: {
+      homoscedasticity,
+      normality
+    }
   };
 }
