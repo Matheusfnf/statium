@@ -191,3 +191,52 @@
   text-decoration-color: var(--accent-primary);
   color: var(--accent-primary-hover);
 }
+
+@media (max-width: 640px) {
+  .modal {
+    width: 95%;
+    max-height: 90vh; /* Permite scroll no modal se for muito alto */
+    overflow-y: auto;
+    /* No mobile, pode ser melhor ficar um pouco mais para cima 
+       para fugir do teclado do iOS/Android */
+    top: 40%;
+    transform: translate(-50%, -40%);
+  }
+
+  @keyframes modalEnter {
+    from { opacity: 0; transform: translate(-50%, -38%) scale(0.96); }
+    to { opacity: 1; transform: translate(-50%, -40%) scale(1); }
+  }
+
+  .header {
+    padding: var(--space-lg) var(--space-lg) var(--space-sm);
+  }
+
+  .form {
+    padding: 0 var(--space-lg) var(--space-lg);
+    gap: var(--space-md);
+  }
+
+  .logoIcon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.25rem;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+}
+
+/* Fix específico para quando o teclado aparece em telas muito pequenas */
+@media (max-height: 500px) and (max-width: 640px) {
+  .modal {
+    top: 20px;
+    transform: translateX(-50%);
+  }
+  
+  @keyframes modalEnter {
+    from { opacity: 0; transform: translate(-50%, 10px) scale(0.96); }
+    to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  }
+}

@@ -15,6 +15,7 @@ export const metadata: Metadata = {
     "estatística experimental",
     "SISVAR online",
   ],
+  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
 };
 
 export default function RootLayout({
