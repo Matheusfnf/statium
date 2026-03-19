@@ -195,36 +195,53 @@
 @media (max-width: 640px) {
   .modal {
     width: 95%;
-    max-height: 90vh; /* Permite scroll no modal se for muito alto */
+    max-height: 85vh; /* Um pouco menor para garantir visibilidade */
     overflow-y: auto;
-    /* No mobile, pode ser melhor ficar um pouco mais para cima 
-       para fugir do teclado do iOS/Android */
-    top: 40%;
-    transform: translate(-50%, -40%);
+    /* Movemos ainda mais para cima para compensar o teclado do iOS/Android */
+    top: 30%;
+    transform: translate(-50%, -30%);
   }
 
   @keyframes modalEnter {
-    from { opacity: 0; transform: translate(-50%, -38%) scale(0.96); }
-    to { opacity: 1; transform: translate(-50%, -40%) scale(1); }
+    from { opacity: 0; transform: translate(-50%, -28%) scale(0.96); }
+    to { opacity: 1; transform: translate(-50%, -30%) scale(1); }
   }
 
   .header {
-    padding: var(--space-lg) var(--space-lg) var(--space-sm);
+    padding: var(--space-md) var(--space-md) var(--space-xs);
   }
 
   .form {
-    padding: 0 var(--space-lg) var(--space-lg);
-    gap: var(--space-md);
+    padding: 0 var(--space-md) var(--space-xl); /* Mais padding embaixo para não colar no teclado */
+    gap: var(--space-sm);
+  }
+
+  .field {
+    gap: 4px;
   }
 
   .logoIcon {
-    width: 40px;
-    height: 40px;
-    font-size: 1.25rem;
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
   }
 
   .title {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
+    margin-bottom: 2px;
+  }
+
+  .subtitle {
+    font-size: 0.75rem;
+  }
+
+  .input {
+    padding: 10px 14px;
+    font-size: 16px; /* Evita que o iPhone dê zoom automático */
+  }
+
+  .submitBtn {
+    padding: 12px;
   }
 }
 
