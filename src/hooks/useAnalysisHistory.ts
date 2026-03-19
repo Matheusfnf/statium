@@ -13,7 +13,9 @@ export interface HistoryEntry {
   numTreatments: number;
   numReps: number;
   treatmentNames: string[];
-  data: (number | null)[][];
+  data: (number | string | null)[][];
+  experimentType?: 'simple' | 'factorial';
+  tidyDataFull?: any;
   anovaResult: AnovaResult;
   tukeyResult: TukeyResult | null;
   scottKnottResult: ScottKnottResult | null;
@@ -67,6 +69,8 @@ export function useAnalysisHistory() {
             numReps: row.num_reps,
             treatmentNames: row.treatment_names,
             data: row.data,
+            experimentType: row.experiment_type || 'simple',
+            tidyDataFull: row.tidy_data_full,
             anovaResult: row.anova_result as AnovaResult,
             tukeyResult: row.tukey_result as TukeyResult | null,
             scottKnottResult: row.scott_knott_result as ScottKnottResult | null,
@@ -89,7 +93,9 @@ export function useAnalysisHistory() {
       numTreatments: number;
       numReps: number;
       treatmentNames: string[];
-      data: (number | null)[][];
+      data: (number | string | null)[][];
+      experimentType: 'simple' | 'factorial';
+      tidyDataFull?: any;
       anovaResult: AnovaResult;
       tukeyResult: TukeyResult | null;
       scottKnottResult: ScottKnottResult | null;
@@ -114,6 +120,8 @@ export function useAnalysisHistory() {
           num_reps: params.numReps,
           treatment_names: params.treatmentNames,
           data: params.data,
+          experiment_type: params.experimentType,
+          tidy_data_full: params.tidyDataFull,
           anova_result: params.anovaResult,
           tukey_result: params.tukeyResult,
           scott_knott_result: params.scottKnottResult,

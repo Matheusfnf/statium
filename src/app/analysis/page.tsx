@@ -227,21 +227,8 @@ export default function AnalysisPage() {
     setTukeyResult(null);
     setScottKnottResult(null);
 
-    let isSignificant = false;
-    if ('factorialSignificance' in result) {
-      const fs = (result as any).factorialSignificance;
-      isSignificant = fs.factorA || fs.factorB || fs.interaction;
-    } else {
-      const treatRow = result.table.find((r) => r.source === 'Tratamento' || r.source === 'Tratamentos');
-      isSignificant = treatRow?.pValue !== null && treatRow?.pValue !== undefined && treatRow.pValue <= alpha;
-    }
-
-    // If significant, go to post-hoc selection. Otherwise, go straight to results.
-    if (isSignificant) {
-      setCurrentStep(3);
-    } else {
-      setCurrentStep(4);
-    }
+    // Always go to post-hoc selection, even if not significant (user preference)
+    setCurrentStep(3);
   }, [data, design, treatmentNames, alpha, validation, variableName, parsedData]);
 
   const handleAnalyzeFactorial = useCallback((mappedData: TidyDataRow[], mapping: TidyDataMapping, rawState: TidyRawState) => {
@@ -257,13 +244,8 @@ export default function AnalysisPage() {
     setTukeyResult(null);
     setScottKnottResult(null);
 
-    const isSignificant = result.factorialSignificance.factorA || result.factorialSignificance.factorB || result.factorialSignificance.interaction;
-
-    if (isSignificant) {
-      setCurrentStep(3);
-    } else {
-      setCurrentStep(4);
-    }
+    // Always go to post-hoc selection, even if not significant (user preference)
+    setCurrentStep(3);
   }, [design, alpha]);
 
   // Run post-hoc test (called from results page)
@@ -330,7 +312,9 @@ export default function AnalysisPage() {
       numTreatments: Number(numTreatments),
       numReps: Number(numReps),
       treatmentNames,
-      data: parsedData,
+      data: data, // Save raw data (with strings) for better persistence
+      experimentType,
+      tidyDataFull,
       anovaResult,
       tukeyResult,
       scottKnottResult,
@@ -346,9 +330,12 @@ export default function AnalysisPage() {
     numTreatments,
     numReps,
     treatmentNames,
-    parsedData,
+    data,
+    experimentType,
+    tidyDataFull,
     comparisonMethod,
     history,
+    alpha,
   ]);
 
   // Auto-hide toast
@@ -368,15 +355,16 @@ export default function AnalysisPage() {
       setNumReps(entry.numReps);
       setTreatmentNames(entry.treatmentNames);
       setData(entry.data as (string | number)[][]);
+      setTidyDataFull(entry.tidyDataFull || null);
       setAnovaResult(entry.anovaResult);
       setTukeyResult(entry.tukeyResult);
       setScottKnottResult(entry.scottKnottResult);
       setComparisonMethod(entry.comparisonMethod);
       setAlpha(entry.alpha ?? 0.05);
-      
-      const isFactorial = entry.anovaResult && 'factorialSignificance' in entry.anovaResult;
+
+      const isFactorial = entry.experimentType === 'factorial' || (entry.anovaResult && 'factorialSignificance' in entry.anovaResult);
       setExperimentType(isFactorial ? 'factorial' : 'simple');
-      
+
       setCurrentStep(4);
       setHistoryOpen(false);
     },
@@ -398,6 +386,17 @@ export default function AnalysisPage() {
     }
   }, [history.entries, history.get, handleLoadHistory]);
 
+  const isAnovaSignificant = useMemo(() => {
+    if (!anovaResult) return false;
+    if (experimentType === 'factorial') {
+      const fs = (anovaResult as any).factorialSignificance;
+      return !!(fs?.factorA || fs?.factorB || fs?.interaction);
+    } else {
+      const treatRow = anovaResult.table.find((r) => r.source === 'Tratamento' || r.source === 'Tratamentos');
+      return !!(treatRow?.pValue !== null && treatRow?.pValue !== undefined && treatRow.pValue <= alpha);
+    }
+  }, [anovaResult, experimentType, alpha]);
+
   const canAnalyze = parsedData.length > 0 && parsedData.some((r) => r.some((v) => v !== null));
 
   return (
@@ -417,7 +416,7 @@ export default function AnalysisPage() {
             className={styles.btnIcon}
             onClick={() => setHistoryOpen(true)}
           >
-            📂 Histórico
+            ⭐ Favoritos
           </button>
         </div>
 
@@ -794,9 +793,23 @@ export default function AnalysisPage() {
               <span className={styles.cardTitleIcon}>🎯</span>
               Qual teste de médias deseja aplicar?
             </h2>
-            <p style={{ color: 'var(--text-tertiary)', fontSize: '0.9rem', marginBottom: 'var(--space-xl)' }}>
-              Como a ANOVA foi significativa para <em>{variableName}</em>, você pode escolher um teste para comparar as médias dos tratamentos.
-            </p>
+            
+            <div style={{ marginBottom: 'var(--space-xl)' }}>
+              {isAnovaSignificant ? (
+                <p style={{ color: 'var(--text-tertiary)', fontSize: '0.9rem', margin: 0 }}>
+                  Como a ANOVA foi significativa para <em>{variableName}</em>, você pode escolher um teste para comparar as médias dos tratamentos.
+                </p>
+              ) : (
+                <div style={{ padding: 'var(--space-md)', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 'var(--radius-md)' }}>
+                  <p style={{ color: 'var(--color-warning, #d97706)', fontSize: '0.9rem', margin: 0, display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>⚠️</span>
+                    <span>
+                      <strong>Aviso:</strong> A ANOVA <strong>não foi significativa</strong> (p &gt; {alpha}) para <em>{variableName}</em>. A rigor estatístico, não é recomendado realizar testes de médias de comparações múltiplas para tratamentos com efeitos iguais, mas acompanhando o fluxo tradicional de alguns softwares como o Sisvar, você pode prosseguir abaixo.
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
 
             <div className={styles.analysisTypeGridSmall}>
               <button
@@ -887,55 +900,57 @@ export default function AnalysisPage() {
             </div>
 
             {/* Assumptions Panel */}
-            <div className={styles.card} style={{ marginBottom: 'var(--space-lg)' }}>
-              <h2 className={styles.cardTitle} style={{ marginBottom: 'var(--space-md)' }}>
-                <span className={styles.cardTitleIcon}>🔍</span>
-                Premissas do Modelo
-              </h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-md)' }}>
-                {/* Normality */}
-                <div style={{
-                  padding: 'var(--space-md)',
-                  borderRadius: 'var(--radius-md)',
-                  background: anovaResult.assumptions.normality.passed ? 'rgba(99, 220, 190, 0.08)' : 'rgba(248, 113, 113, 0.08)',
-                  border: `1px solid ${anovaResult.assumptions.normality.passed ? 'rgba(99, 220, 190, 0.25)' : 'rgba(248, 113, 113, 0.25)'}`
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>{anovaResult.assumptions.normality.passed ? '✅' : '❌'}</span>
-                    <strong style={{ color: 'var(--text-primary)' }}>Normalidade dos Resíduos</strong>
+            {anovaResult.assumptions && (
+              <div className={styles.card} style={{ marginBottom: 'var(--space-lg)' }}>
+                <h2 className={styles.cardTitle} style={{ marginBottom: 'var(--space-md)' }}>
+                  <span className={styles.cardTitleIcon}>🔍</span>
+                  Premissas do Modelo
+                </h2>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-md)' }}>
+                  {/* Normality */}
+                  <div style={{
+                    padding: 'var(--space-md)',
+                    borderRadius: 'var(--radius-md)',
+                    background: anovaResult.assumptions.normality.passed ? 'rgba(99, 220, 190, 0.08)' : 'rgba(248, 113, 113, 0.08)',
+                    border: `1px solid ${anovaResult.assumptions.normality.passed ? 'rgba(99, 220, 190, 0.25)' : 'rgba(248, 113, 113, 0.25)'}`
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '1.2rem' }}>{anovaResult.assumptions.normality.passed ? '✅' : '❌'}</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>Normalidade dos Resíduos</strong>
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Teste de {anovaResult.assumptions.normality.name} (p = {formatNumber(anovaResult.assumptions.normality.pValue, 4)})
+                    </p>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                      {anovaResult.assumptions.normality.passed
+                        ? 'Os resíduos seguem distribuição normal, satisfazendo a premissa.'
+                        : 'Os resíduos desviam da normalidade. A ANOVA pode estar comprometida.'}
+                    </p>
                   </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    Teste de {anovaResult.assumptions.normality.name} (p = {formatNumber(anovaResult.assumptions.normality.pValue, 4)})
-                  </p>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
-                    {anovaResult.assumptions.normality.passed
-                      ? 'Os resíduos seguem distribuição normal, satisfazendo a premissa.'
-                      : 'Os resíduos desviam da normalidade. A ANOVA pode estar comprometida.'}
-                  </p>
-                </div>
 
-                {/* Homoscedasticity */}
-                <div style={{
-                  padding: 'var(--space-md)',
-                  borderRadius: 'var(--radius-md)',
-                  background: anovaResult.assumptions.homoscedasticity.passed ? 'rgba(99, 220, 190, 0.08)' : 'rgba(248, 113, 113, 0.08)',
-                  border: `1px solid ${anovaResult.assumptions.homoscedasticity.passed ? 'rgba(99, 220, 190, 0.25)' : 'rgba(248, 113, 113, 0.25)'}`
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>{anovaResult.assumptions.homoscedasticity.passed ? '✅' : '❌'}</span>
-                    <strong style={{ color: 'var(--text-primary)' }}>Homogeneidade de Variâncias</strong>
+                  {/* Homoscedasticity */}
+                  <div style={{
+                    padding: 'var(--space-md)',
+                    borderRadius: 'var(--radius-md)',
+                    background: anovaResult.assumptions.homoscedasticity.passed ? 'rgba(99, 220, 190, 0.08)' : 'rgba(248, 113, 113, 0.08)',
+                    border: `1px solid ${anovaResult.assumptions.homoscedasticity.passed ? 'rgba(99, 220, 190, 0.25)' : 'rgba(248, 113, 113, 0.25)'}`
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '1.2rem' }}>{anovaResult.assumptions.homoscedasticity.passed ? '✅' : '❌'}</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>Homogeneidade de Variâncias</strong>
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Teste de {anovaResult.assumptions.homoscedasticity.name} (p = {formatNumber(anovaResult.assumptions.homoscedasticity.pValue, 4)})
+                    </p>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                      {anovaResult.assumptions.homoscedasticity.passed
+                        ? 'As variâncias são homogêneas, satisfazendo a premissa.'
+                        : 'As variâncias são heterogêneas (heterocedasticidade). A precisão do teste F é reduzida.'}
+                    </p>
                   </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    Teste de {anovaResult.assumptions.homoscedasticity.name} (p = {formatNumber(anovaResult.assumptions.homoscedasticity.pValue, 4)})
-                  </p>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
-                    {anovaResult.assumptions.homoscedasticity.passed
-                      ? 'As variâncias são homogêneas, satisfazendo a premissa.'
-                      : 'As variâncias são heterogêneas (heterocedasticidade). A precisão do teste F é reduzida.'}
-                  </p>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* ANOVA Table */}
             <div className={styles.card}>
@@ -1054,9 +1069,23 @@ export default function AnalysisPage() {
             {(comparisonMethod === 'tukey' || comparisonMethod === 'scott-knott') && (
               <div className={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-md)' }}>
-                  <h2 className={styles.cardTitle} style={{ marginBottom: 0 }}>
-                    <span className={styles.cardTitleIcon}>🔤</span>
-                    Comparação de Médias — {comparisonMethod === 'tukey' ? 'Tukey' : 'Scott-Knott'}
+                  <h2 className={styles.cardTitle} style={{ marginBottom: 0, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className={styles.cardTitleIcon}>🔤</span>
+                      <span>Comparação de Médias</span>
+                    </div>
+                    <span style={{ 
+                      background: 'rgba(99, 220, 190, 0.15)', 
+                      color: 'var(--primary, #63dcbe)', 
+                      border: '1px solid rgba(99, 220, 190, 0.3)',
+                      padding: '4px 12px', 
+                      borderRadius: 'var(--radius-lg, 12px)', 
+                      fontSize: '0.9rem', 
+                      fontWeight: '700',
+                      letterSpacing: '0.5px'
+                    }}>
+                      {comparisonMethod === 'tukey' ? 'TESTE DE TUKEY' : 'TESTE DE SCOTT-KNOTT'}
+                    </span>
                   </h2>
                   <button
                     className={styles.btnSecondary}
@@ -1189,7 +1218,7 @@ export default function AnalysisPage() {
                 className={`${styles.btnIcon} ${styles.btnSuccess}`}
                 onClick={handleSave}
               >
-                💾 Salvar
+                ⭐ Favoritar
               </button>
               <button className={styles.btnIcon} onClick={handleExportCSV}>
                 📊 CSV
