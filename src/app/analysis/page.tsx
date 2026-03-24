@@ -287,10 +287,74 @@ export default function AnalysisPage() {
     exportCSV(anovaResult, tukeyResult, scottKnottResult, method, alpha);
   }, [anovaResult, tukeyResult, scottKnottResult, comparisonMethod, alpha]);
 
+  const tablesToRender = useMemo(() => {
+    const tables: { title: string; dmsText: React.ReactNode; dmsValueStr?: string; groups: any[] }[] = [];
+    if (comparisonMethod === 'none') return tables;
+
+    if (comparisonMethod === 'tukey' && tukeyResult) {
+      const getDmsText = (res: any) => {
+        const dmsVal = alpha <= 0.01 ? res.dms01 : res.dms05;
+        const percent = alpha <= 0.01 ? '1%' : '5%';
+        return `DMS (${percent}) = ${dmsVal !== null ? formatNumber(dmsVal, 4) : 'Variável'}`;
+      };
+      const getDmsVal = (res: any) => {
+        const dmsVal = alpha <= 0.01 ? res.dms01 : res.dms05;
+        return dmsVal !== null ? formatNumber(dmsVal, 2) : 'Variável (TK)';
+      };
+
+      if (tukeyResult.isFactorial && tukeyResult.mainA && tukeyResult.mainB) {
+        tables.push({
+          title: tidyDataFull?.mapping.factorA || "Fator A",
+          dmsText: getDmsText(tukeyResult.mainA),
+          dmsValueStr: getDmsVal(tukeyResult.mainA),
+          groups: tukeyResult.mainA.groups
+        });
+        tables.push({
+          title: tidyDataFull?.mapping.factorB || "Fator B",
+          dmsText: getDmsText(tukeyResult.mainB),
+          dmsValueStr: getDmsVal(tukeyResult.mainB),
+          groups: tukeyResult.mainB.groups
+        });
+      } else {
+        tables.push({
+          title: experimentType === 'simple' ? "Tratamentos" : "Interação (Fator A x Fator B)",
+          dmsText: getDmsText(tukeyResult),
+          dmsValueStr: getDmsVal(tukeyResult),
+          groups: tukeyResult.groups
+        });
+      }
+    } else if (comparisonMethod === 'scott-knott' && scottKnottResult) {
+      if (scottKnottResult.isFactorial && scottKnottResult.mainA && scottKnottResult.mainB) {
+        tables.push({
+          title: tidyDataFull?.mapping.factorA || "Fator A",
+          dmsText: `${scottKnottResult.mainA.numGroups} grupo(s) identificado(s)`,
+          groups: scottKnottResult.mainA.groups
+        });
+        tables.push({
+          title: tidyDataFull?.mapping.factorB || "Fator B",
+          dmsText: `${scottKnottResult.mainB.numGroups} grupo(s) identificado(s)`,
+          groups: scottKnottResult.mainB.groups
+        });
+      } else {
+        tables.push({
+          title: experimentType === 'simple' ? "Tratamentos" : "Interação (Fator A x Fator B)",
+          dmsText: `${scottKnottResult.numGroups} grupo(s) identificado(s)`,
+          groups: scottKnottResult.groups
+        });
+      }
+    }
+    return tables;
+  }, [comparisonMethod, tukeyResult, scottKnottResult, alpha, experimentType, tidyDataFull]);
+
   const handleExportMeansWord = useCallback(() => {
     if (!anovaResult) return;
-    exportMeansWord(anovaResult, tukeyResult, scottKnottResult, comparisonMethod, variableName, alpha);
-  }, [anovaResult, tukeyResult, scottKnottResult, comparisonMethod, variableName, alpha]);
+    const tablesForExport = tablesToRender.map(t => ({
+      title: t.title,
+      dmsValueStr: t.dmsValueStr,
+      groups: t.groups
+    }));
+    exportMeansWord(variableName, comparisonMethod, alpha, anovaResult.cv, tablesForExport);
+  }, [anovaResult, comparisonMethod, variableName, alpha, tablesToRender]);
 
   const handleExportAnovaWord = useCallback(() => {
     if (!anovaResult) return;
@@ -306,7 +370,7 @@ export default function AnalysisPage() {
   // Save to history
   const handleSave = useCallback(async () => {
     if (!anovaResult) return;
-    await history.save({
+    const savedId = await history.save({
       design,
       variableName,
       numTreatments: Number(numTreatments),
@@ -321,7 +385,9 @@ export default function AnalysisPage() {
       comparisonMethod: comparisonMethod === 'none' ? 'tukey' : comparisonMethod,
       alpha,
     });
-    setShowSavedToast(true);
+    if (savedId) {
+      setShowSavedToast(true);
+    }
   }, [
     anovaResult,
     tukeyResult,
@@ -901,12 +967,15 @@ export default function AnalysisPage() {
 
             {/* Assumptions Panel */}
             {anovaResult.assumptions && (
-              <div className={styles.card} style={{ marginBottom: 'var(--space-lg)' }}>
-                <h2 className={styles.cardTitle} style={{ marginBottom: 'var(--space-md)' }}>
-                  <span className={styles.cardTitleIcon}>🔍</span>
-                  Premissas do Modelo
-                </h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-md)' }}>
+              <details className={styles.card} style={{ marginBottom: 'var(--space-lg)' }}>
+                <summary style={{ cursor: 'pointer', outline: 'none', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-sm)' }}>
+                  <h2 className={styles.cardTitle} style={{ marginBottom: 0 }}>
+                    <span className={styles.cardTitleIcon}>🔍</span>
+                    Premissas do Modelo (Opcional)
+                  </h2>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', fontWeight: 'bold', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: '20px' }}>Clique para expandir 🔽</span>
+                </summary>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-md)', marginTop: 'var(--space-md)' }}>
                   {/* Normality */}
                   <div style={{
                     padding: 'var(--space-md)',
@@ -949,7 +1018,7 @@ export default function AnalysisPage() {
                     </p>
                   </div>
                 </div>
-              </div>
+              </details>
             )}
 
             {/* ANOVA Table */}
@@ -1012,7 +1081,7 @@ export default function AnalysisPage() {
                 </table>
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', marginTop: 'var(--space-sm)' }}>
-                {alpha <= 0.01 ? '**' : '*'} significativo a {Number.isInteger(alpha * 100) ? alpha * 100 : (alpha * 100).toFixed(1)}% de probabilidade &nbsp;|&nbsp; ns: não significativo
+                * significativo a {Number.isInteger(alpha * 100) ? alpha * 100 : (alpha * 100).toFixed(1)}% de probabilidade &nbsp;|&nbsp; ns: não significativo
               </div>
 
               {/* Interpretation */}
@@ -1029,7 +1098,20 @@ export default function AnalysisPage() {
                     }}>
                       <strong style={{ color: 'var(--text-primary)' }}>📝 Interpretação Fatorial:</strong>{' '}
                       A tabela ANOVA foi desdobrada nos efeitos principais e na Interação.
-                      Consulte a coluna <strong>p-valor</strong> ou <strong>Sig.</strong> da tabela acima para avaliar quais fatores influenciaram significativamente a resposta <em>{variableName}</em>.
+                      <ul style={{ marginTop: '8px', paddingLeft: '20px', color: 'var(--text-primary)' }}>
+                        <li>
+                          <strong>{tidyDataFull?.mapping.factorA || 'Fator A'}:</strong>{' '}
+                          {fs?.factorA ? <span style={{color: 'var(--primary)'}}>Significativo</span> : 'Não significativo'}
+                        </li>
+                        <li>
+                          <strong>{tidyDataFull?.mapping.factorB || 'Fator B'}:</strong>{' '}
+                          {fs?.factorB ? <span style={{color: 'var(--primary)'}}>Significativo</span> : 'Não significativo'}
+                        </li>
+                        <li>
+                          <strong>Interação AxB:</strong>{' '}
+                          {fs?.interaction ? <span style={{color: 'var(--primary)'}}>Significativa</span> : 'Não significativa'}
+                        </li>
+                      </ul>
                     </div>
                   );
                 }
@@ -1066,84 +1148,93 @@ export default function AnalysisPage() {
             </div>
 
             {/* Means Comparison Results (Conditional) */}
-            {(comparisonMethod === 'tukey' || comparisonMethod === 'scott-knott') && (
-              <div className={styles.card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-md)' }}>
-                  <h2 className={styles.cardTitle} style={{ marginBottom: 0, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className={styles.cardTitleIcon}>🔤</span>
-                      <span>Comparação de Médias</span>
+            {(comparisonMethod === 'tukey' || comparisonMethod === 'scott-knott') && (() => {
+              
+              if (tablesToRender.length === 0) return null;
+
+              return (
+                <div className={styles.card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-md)' }}>
+                    <h2 className={styles.cardTitle} style={{ marginBottom: 0, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className={styles.cardTitleIcon}>🔤</span>
+                        <span>Comparação de Médias</span>
+                      </div>
+                      <span style={{ 
+                        background: 'rgba(99, 220, 190, 0.15)', 
+                        color: 'var(--primary, #63dcbe)', 
+                        border: '1px solid rgba(99, 220, 190, 0.3)',
+                        padding: '4px 12px', 
+                        borderRadius: 'var(--radius-lg, 12px)', 
+                        fontSize: '0.9rem', 
+                        fontWeight: '700',
+                        letterSpacing: '0.5px'
+                      }}>
+                        {comparisonMethod === 'tukey' ? 'TESTE DE TUKEY' : 'TESTE DE SCOTT-KNOTT'}
+                      </span>
+                    </h2>
+                    <button
+                      className={styles.btnSecondary}
+                      onClick={handleExportMeansWord}
+                      style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      📝 Word (Artigo)
+                    </button>
+                  </div>
+
+                  {tablesToRender.map((table, idx) => (
+                    <div key={idx} style={{ marginBottom: idx < tablesToRender.length - 1 ? '1.5rem' : '0' }}>
+                      {tablesToRender.length > 1 && (
+                        <h3 style={{ fontSize: '1rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                          Efeito Principal: <strong>{table.title}</strong>
+                        </h3>
+                      )}
+                      
+                      <div className={styles.alphaSelect}>
+                        {comparisonMethod === 'tukey' ? (
+                          <>Teste de Tukey (HSD) — {table.dmsText}</>
+                        ) : (
+                          <>Teste de Scott-Knott — {table.dmsText}</>
+                        )}
+                      </div>
+                      <table className={styles.meansTable}>
+                        <thead>
+                          <tr>
+                            <th>Tratamento</th>
+                            <th>Média</th>
+                            <th>Grupo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...table.groups].sort((a, b) => a.mean - b.mean).map((g, i) => (
+                            <tr key={i}>
+                              <td>{g.treatmentName}</td>
+                              <td style={{ fontFamily: 'var(--font-mono)' }}>
+                                {formatNumber(g.mean, 4)}
+                              </td>
+                              <td>
+                                <span className={styles.letterBadge}>{g.letter}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <span style={{ 
-                      background: 'rgba(99, 220, 190, 0.15)', 
-                      color: 'var(--primary, #63dcbe)', 
-                      border: '1px solid rgba(99, 220, 190, 0.3)',
-                      padding: '4px 12px', 
-                      borderRadius: 'var(--radius-lg, 12px)', 
-                      fontSize: '0.9rem', 
-                      fontWeight: '700',
-                      letterSpacing: '0.5px'
-                    }}>
-                      {comparisonMethod === 'tukey' ? 'TESTE DE TUKEY' : 'TESTE DE SCOTT-KNOTT'}
-                    </span>
-                  </h2>
+                  ))}
+
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: 'var(--space-sm)' }}>
+                    Médias seguidas da mesma letra não diferem entre si ao nível de {alpha * 100}% de probabilidade.
+                  </p>
                   <button
                     className={styles.btnSecondary}
-                    onClick={handleExportMeansWord}
-                    style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    style={{ fontSize: '0.8rem', marginTop: 'var(--space-md)' }}
+                    onClick={() => setCurrentStep(3)}
                   >
-                    📝 Word (Artigo)
+                    🔄 Trocar Teste de Médias
                   </button>
                 </div>
-                <div className={styles.alphaSelect}>
-                  {comparisonMethod === 'tukey' && tukeyResult ? (
-                    <>
-                      Teste de Tukey (HSD) — DMS (5%) = {tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (Tukey-Kramer)'} &nbsp;|&nbsp;
-                      DMS (1%) = {tukeyResult.dms01 !== null ? formatNumber(tukeyResult.dms01, 4) : 'Variável (Tukey-Kramer)'}
-                    </>
-                  ) : comparisonMethod === 'scott-knott' && scottKnottResult ? (
-                    <>Teste de Scott-Knott — {scottKnottResult.numGroups} grupo(s) identificado(s)</>
-                  ) : null}
-                </div>
-                <table className={styles.meansTable}>
-                  <thead>
-                    <tr>
-                      <th>Tratamento</th>
-                      <th>Média</th>
-                      <th>Grupo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(comparisonMethod === 'tukey' && tukeyResult
-                      ? tukeyResult.groups
-                      : comparisonMethod === 'scott-knott' && scottKnottResult
-                        ? scottKnottResult.groups
-                        : []
-                    ).map((g, i) => (
-                      <tr key={i}>
-                        <td>{g.treatmentName}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>
-                          {formatNumber(g.mean, 4)}
-                        </td>
-                        <td>
-                          <span className={styles.letterBadge}>{g.letter}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: 'var(--space-sm)' }}>
-                  Médias seguidas da mesma letra não diferem entre si ao nível de {alpha * 100}% de probabilidade.
-                </p>
-                <button
-                  className={styles.btnSecondary}
-                  style={{ fontSize: '0.8rem', marginTop: 'var(--space-md)' }}
-                  onClick={() => setCurrentStep(3)}
-                >
-                  🔄 Trocar Teste de Médias
-                </button>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Chart */}
             <div className={styles.card}>

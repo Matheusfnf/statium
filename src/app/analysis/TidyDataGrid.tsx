@@ -36,6 +36,16 @@ export function TidyDataGrid({ design, onAnalyze, onBack, initialState }: TidyDa
   const [headers, setHeaders] = useState<string[]>(initialState?.headers || []);
   const [isManualMode, setIsManualMode] = useState(initialState?.isManualMode || false);
   const [mapping, setMapping] = useState<Partial<TidyDataMapping>>(initialState?.mapping || {});
+  
+  const [isConfiguringManual, setIsConfiguringManual] = useState(false);
+  const [manualSetup, setManualSetup] = useState({
+    factorA: 'Fator A',
+    factorB: 'Fator B',
+    factorC: 'Fator C',
+    hasC: false,
+    block: design === 'DBC' ? 'Bloco' : '',
+    response: 'Variável Resposta'
+  });
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     e.preventDefault();
@@ -124,20 +134,37 @@ export function TidyDataGrid({ design, onAnalyze, onBack, initialState }: TidyDa
   };
 
   const startManualInput = () => {
+    setIsConfiguringManual(true);
+  };
+
+  const handleGenerateManualGrid = () => {
+    if (!manualSetup.factorA.trim() || !manualSetup.factorB.trim() || !manualSetup.response.trim() || (design === 'DBC' && !manualSetup.block.trim())) {
+      alert('Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    setIsConfiguringManual(false);
     setIsManualMode(true);
-    const initialHeaders = design === 'DBC' 
-      ? ['Fator A', 'Fator B', 'Bloco', 'Resposta'] 
-      : ['Fator A', 'Fator B', 'Resposta'];
+    
+    const initialHeaders = [manualSetup.factorA.trim(), manualSetup.factorB.trim()];
+    if (manualSetup.hasC && manualSetup.factorC.trim()) {
+      initialHeaders.push(manualSetup.factorC.trim());
+    }
+    if (design === 'DBC') {
+      initialHeaders.push(manualSetup.block.trim());
+    }
+    initialHeaders.push(manualSetup.response.trim());
     
     setHeaders(initialHeaders);
     setRawData(Array.from({ length: 5 }, () => Array(initialHeaders.length).fill('')));
     
     // Auto-map these known headers
     setMapping({
-      factorA: 'Fator A',
-      factorB: 'Fator B',
-      ...(design === 'DBC' && { block: 'Bloco' }),
-      response: 'Resposta'
+      factorA: manualSetup.factorA.trim(),
+      factorB: manualSetup.factorB.trim(),
+      ...(manualSetup.hasC && manualSetup.factorC.trim() ? { factorC: manualSetup.factorC.trim() } : {}),
+      ...(design === 'DBC' && { block: manualSetup.block.trim() }),
+      response: manualSetup.response.trim()
     });
   };
 
@@ -188,6 +215,69 @@ export function TidyDataGrid({ design, onAnalyze, onBack, initialState }: TidyDa
       </h2>
 
       {headers.length === 0 ? (
+        isConfiguringManual ? (
+          <div style={{ background: 'var(--bg-page)', padding: 'var(--space-xl)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', animation: 'fadeIn 0.3s ease' }}>
+            <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)', marginBottom: 'var(--space-sm)' }}>
+              Defina os Nomes das Suas Colunas
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 'var(--space-lg)' }}>
+              Dê nome aos seus fatores e à variável resposta para gerar uma tabela personalizada que funciona exatamente como sua planilha.
+            </p>
+
+            <div style={{ display: 'grid', gap: 'var(--space-md)' }}>
+              <div className={styles.field}>
+                <label className={styles.label}>Nome do Fator A *</label>
+                <input 
+                  className={styles.input} 
+                  value={manualSetup.factorA} 
+                  onChange={e => setManualSetup({...manualSetup, factorA: e.target.value})}
+                  placeholder="Ex: Porta Enxerto, Variedade..." 
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>Nome do Fator B *</label>
+                <input 
+                  className={styles.input} 
+                  value={manualSetup.factorB} 
+                  onChange={e => setManualSetup({...manualSetup, factorB: e.target.value})}
+                  placeholder="Ex: NaCl, Dose..." 
+                />
+              </div>
+
+              {design === 'DBC' && (
+                <div className={styles.field}>
+                  <label className={styles.label}>Nome do Bloco (Repetição) *</label>
+                  <input 
+                    className={styles.input} 
+                    value={manualSetup.block} 
+                    onChange={e => setManualSetup({...manualSetup, block: e.target.value})}
+                    placeholder="Ex: Rep, Bloco..." 
+                  />
+                </div>
+              )}
+
+              <div className={styles.field}>
+                <label className={styles.label}>Nome da Variável Resposta *</label>
+                <input 
+                  className={styles.input} 
+                  value={manualSetup.response} 
+                  onChange={e => setManualSetup({...manualSetup, response: e.target.value})}
+                  placeholder="Ex: Clorofila, Produtividade..." 
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 'var(--space-md)', marginTop: 'var(--space-xl)' }}>
+              <button className={styles.btnSecondary} onClick={() => setIsConfiguringManual(false)}>
+                Cancelar
+              </button>
+              <button className={styles.btnPrimary} onClick={handleGenerateManualGrid}>
+                Criar Tabela Personalizada
+              </button>
+            </div>
+          </div>
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
           <div 
             style={{
@@ -220,9 +310,11 @@ export function TidyDataGrid({ design, onAnalyze, onBack, initialState }: TidyDa
             Inserir dados manualmente ⌨️
           </button>
         </div>
+        )
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)' }}>
           {/* Mapping Section */}
+          {!isManualMode && (
           <div style={{ background: 'var(--bg-page)', padding: 'var(--space-lg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
             <h3 style={{ fontSize: '1.1rem', marginBottom: 'var(--space-md)', color: 'var(--text-primary)' }}>Mapeamento de Colunas</h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-lg)' }}>
@@ -278,12 +370,13 @@ export function TidyDataGrid({ design, onAnalyze, onBack, initialState }: TidyDa
               </div>
             </div>
           </div>
+          )}
 
           {/* Data Preview / Edit */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
               <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>Dados do Experimento</h3>
-              <button className={styles.btnSecondary} style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => {setHeaders([]); setRawData([]); setIsManualMode(false);}}>
+              <button className={styles.btnSecondary} style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => {setHeaders([]); setRawData([]); setIsManualMode(false); setIsConfiguringManual(false);}}>
                 Limpar Grade
               </button>
             </div>

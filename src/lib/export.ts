@@ -277,138 +277,174 @@ export function exportCSV(
   downloadBlob(blob, `statium-analise-${new Date().toISOString().slice(0, 10)}.csv`);
 }
 
+export interface ExportMeansTable {
+  title: string;
+  dmsValueStr?: string;
+  groups: { treatmentName: string; mean: number; letter: string }[];
+}
+
 export async function exportMeansWord(
-  anovaResult: AnovaResult,
-  tukeyResult: TukeyResult | null,
-  scottKnottResult: ScottKnottResult | null,
-  comparisonMethod: 'tukey' | 'scott-knott' | 'none',
   variableName: string,
-  alpha: number
+  comparisonMethod: 'tukey' | 'scott-knott' | 'none',
+  alpha: number,
+  cv: number,
+  tablesToExport: ExportMeansTable[]
 ) {
-  const groups = comparisonMethod === 'tukey' ? tukeyResult?.groups : 
-                 comparisonMethod === 'scott-knott' ? scottKnottResult?.groups : 
-                 null;
-  if (!groups && comparisonMethod !== 'none') return;
+  if (tablesToExport.length === 0 || comparisonMethod === 'none') return;
 
   const methodName = comparisonMethod === 'tukey' ? 'Tukey' : 'Scott-Knott';
   const alphaPercent = `${(alpha * 100).toFixed(0)}%`;
 
-  // Create table rows
-  const tableRows = [
-    // Header Row
-    new TableRow({
-      children: [
-        new TableCell({
-          children: [
-            new Paragraph({
-              children: [
-                new TextRun({ text: 'Tratamentos', bold: true }),
-                new TextRun({ text: '1', bold: true, superScript: true }),
-              ],
-            }),
-          ],
-          width: { size: 4000, type: WidthType.DXA },
-          borders: { bottom: { style: BorderStyle.SINGLE, size: 1 } },
-        }),
-        new TableCell({
-          children: [new Paragraph({ children: [new TextRun({ text: variableName, bold: true })] })],
-          width: { size: 4000, type: WidthType.DXA },
-          borders: { bottom: { style: BorderStyle.SINGLE, size: 1 } },
-        }),
-      ],
-    }),
-    // Data Rows
-    ...(groups ? groups.map((g) => new TableRow({
-      children: [
-        new TableCell({
-          children: [new Paragraph(g.treatmentName)],
-        }),
-        new TableCell({
-          children: [new Paragraph(`${formatNumber(g.mean, 4)} ${g.letter}`)],
-        }),
-      ],
-    })) : []),
-    // DMS Row (only for Tukey)
-    ...(comparisonMethod === 'tukey' && tukeyResult ? [
+  const sections: any[] = [];
+
+  tablesToExport.forEach((tableData, index) => {
+    const tableRows = [
+      // Header Row (Double bordered top/bottom usually, but DOCX lacks double easily, so top/bottom single)
       new TableRow({
         children: [
-          new TableCell({ 
-            children: [new Paragraph('DMS')],
-            borders: { top: { style: BorderStyle.SINGLE, size: 1 } },
-          }),
-          new TableCell({ 
-            children: [new Paragraph(tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (TK)')],
-            borders: { top: { style: BorderStyle.SINGLE, size: 1 } },
-          }),
-        ],
-      })
-    ] : []),
-    // CV Row
-    new TableRow({
-      children: [
-        new TableCell({ 
-          children: [new Paragraph('CV (%)')],
-          borders: { 
-            top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : undefined,
-            bottom: { style: BorderStyle.SINGLE, size: 1 }
-          },
-        }),
-        new TableCell({ 
-          children: [new Paragraph(formatNumber(anovaResult.cv, 2))],
-          borders: { 
-            top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : undefined,
-            bottom: { style: BorderStyle.SINGLE, size: 1 }
-          },
-        }),
-      ],
-    }),
-  ];
-
-  const table = new Table({
-    rows: tableRows,
-    width: { size: 6000, type: WidthType.DXA },
-    borders: {
-      top: { style: BorderStyle.SINGLE, size: 1 },
-      bottom: { style: BorderStyle.NONE }, // Handled by cells
-      left: { style: BorderStyle.NONE },
-      right: { style: BorderStyle.NONE },
-      insideHorizontal: { style: BorderStyle.NIL },
-      insideVertical: { style: BorderStyle.NONE },
-    },
-  });
-
-  const doc = new Document({
-    sections: [
-      {
-        children: [
-          new Paragraph({
+          new TableCell({
             children: [
-              new TextRun({
-                text: `Tabela 1: Médias de ${variableName} em função dos tratamentos.`,
-                bold: true,
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `${tableData.title}`, bold: true }),
+                  new TextRun({ text: '1', bold: true, superScript: true }),
+                ],
               }),
             ],
-            spacing: { after: 200 },
+            width: { size: 4000, type: WidthType.DXA },
+            borders: {
+              top: { style: BorderStyle.SINGLE, size: 1 },
+              bottom: { style: BorderStyle.SINGLE, size: 1 },
+              left: { style: BorderStyle.NONE },
+              right: { style: BorderStyle.NONE },
+            },
           }),
-          table,
-          ...(comparisonMethod !== 'none' ? [
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `¹Médias seguidas por letras distintas diferem entre si pelo Teste de ${methodName} a ${alphaPercent} de significância.`,
-                  size: 18, // ~9pt
-                }),
-              ],
-              spacing: { before: 200 },
-            }),
-          ] : []),
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: variableName, bold: true })] })],
+            width: { size: 4000, type: WidthType.DXA },
+            borders: {
+              top: { style: BorderStyle.SINGLE, size: 1 },
+              bottom: { style: BorderStyle.SINGLE, size: 1 },
+              left: { style: BorderStyle.NONE },
+              right: { style: BorderStyle.NONE },
+            },
+          }),
         ],
+      }),
+      // Data Rows
+      ...tableData.groups.map((g) => new TableRow({
+        children: [
+          new TableCell({
+            children: [new Paragraph(g.treatmentName)],
+            borders: {
+              top: { style: BorderStyle.NONE },
+              bottom: { style: BorderStyle.NONE },
+              left: { style: BorderStyle.NONE },
+              right: { style: BorderStyle.NONE },
+            },
+          }),
+          new TableCell({
+            children: [new Paragraph(`${formatNumber(g.mean, 2)} ${g.letter}`)],
+            borders: {
+              top: { style: BorderStyle.NONE },
+              bottom: { style: BorderStyle.NONE },
+              left: { style: BorderStyle.NONE },
+              right: { style: BorderStyle.NONE },
+            },
+          }),
+        ],
+      })),
+      // DMS Row (only for Tukey)
+      ...(comparisonMethod === 'tukey' && tableData.dmsValueStr ? [
+        new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph('DMS')],
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1 },
+                bottom: { style: BorderStyle.NONE },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+            new TableCell({
+              children: [new Paragraph(tableData.dmsValueStr)],
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1 },
+                bottom: { style: BorderStyle.NONE },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+          ],
+        })
+      ] : []),
+      // CV Row
+      new TableRow({
+        children: [
+          new TableCell({
+            children: [new Paragraph('CV (%)')],
+            borders: {
+              top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
+              bottom: { style: BorderStyle.SINGLE, size: 1 },
+              left: { style: BorderStyle.NONE },
+              right: { style: BorderStyle.NONE },
+            },
+          }),
+          new TableCell({
+            children: [new Paragraph(formatNumber(cv, 2))],
+            borders: {
+              top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
+              bottom: { style: BorderStyle.SINGLE, size: 1 },
+              left: { style: BorderStyle.NONE },
+              right: { style: BorderStyle.NONE },
+            },
+          }),
+        ],
+      }),
+    ];
+
+    const table = new Table({
+      rows: tableRows,
+      width: { size: 6000, type: WidthType.DXA },
+      borders: {
+        top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+        bottom: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+        left: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+        right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+        insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+        insideVertical: { style: BorderStyle.NONE, size: 0, color: 'auto' },
       },
-    ],
+    });
+
+    sections.push({
+      children: [
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `Tabela ${index + 1}: Médias de ${variableName} em função de ${tableData.title}.`,
+              bold: true,
+            }),
+          ],
+          spacing: { after: 200 },
+        }),
+        table,
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `¹Médias seguidas por letras distintas diferem entre si pelo Teste de ${methodName} a ${alphaPercent} de significância.`,
+              size: 18, // ~9pt
+            }),
+          ],
+          spacing: { before: 200 },
+        }),
+      ],
+    });
   });
 
+  const doc = new Document({ sections });
   const blob = await Packer.toBlob(doc);
-  downloadBlob(blob, `tabela-medias-artigo-${new Date().toISOString().slice(0, 10)}.docx`);
+  downloadBlob(blob, `tabelas-medias-artigo-${new Date().toISOString().slice(0, 10)}.docx`);
 }
 
 export async function exportAnovaWord(

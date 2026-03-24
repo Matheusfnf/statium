@@ -8,12 +8,13 @@ export interface FactorialAnovaResult extends AnovaResult {
     factorB: boolean;
     interaction: boolean;
   };
+  factorA: { names: string[]; means: number[]; counts: number[] };
+  factorB: { names: string[]; means: number[]; counts: number[] };
 }
 
-function getSignificance(p: number | null): string {
+function getSignificance(p: number | null, alpha: number): string {
   if (p === null) return 'ns';
-  if (p < 0.01) return '**';
-  if (p < 0.05) return '*';
+  if (p <= alpha) return '*';
   return 'ns';
 }
 
@@ -112,7 +113,7 @@ export function anovaFatorialDuplo(
       fValue: FBlock, pValue: pBlock,
       fCritical05: df_Block > 0 && df_Error > 0 ? fCritical(0.05, df_Block, df_Error) : null,
       fCritical01: df_Block > 0 && df_Error > 0 ? fCritical(0.01, df_Block, df_Error) : null,
-      significance: getSignificance(pBlock)
+      significance: getSignificance(pBlock, alpha)
     });
   }
   
@@ -121,21 +122,21 @@ export function anovaFatorialDuplo(
     fValue: FA, pValue: pA,
     fCritical05: df_A > 0 && df_Error > 0 ? fCritical(0.05, df_A, df_Error) : null,
     fCritical01: df_A > 0 && df_Error > 0 ? fCritical(0.01, df_A, df_Error) : null,
-    significance: getSignificance(pA)
+    significance: getSignificance(pA, alpha)
   });
   table.push({
     source: 'Fator B', df: df_B, ss: SSB, ms: MSB,
     fValue: FB, pValue: pB,
     fCritical05: df_B > 0 && df_Error > 0 ? fCritical(0.05, df_B, df_Error) : null,
     fCritical01: df_B > 0 && df_Error > 0 ? fCritical(0.01, df_B, df_Error) : null,
-    significance: getSignificance(pB)
+    significance: getSignificance(pB, alpha)
   });
   table.push({
     source: 'Interação AxB', df: df_AB, ss: SSAB, ms: MSAB,
     fValue: FAB, pValue: pAB,
     fCritical05: df_AB > 0 && df_Error > 0 ? fCritical(0.05, df_AB, df_Error) : null,
     fCritical01: df_AB > 0 && df_Error > 0 ? fCritical(0.01, df_AB, df_Error) : null,
-    significance: getSignificance(pAB)
+    significance: getSignificance(pAB, alpha)
   });
   table.push({
     source: 'Resíduo', df: df_Error, ss: SSE, ms: MSE,
@@ -171,6 +172,15 @@ export function anovaFatorialDuplo(
     homoscedasticity: { name: 'Bartlett (Mock)', passed: true, pValue: 0.99, statistic: 0.01 }
   };
 
+  // Marginal Means for Independent Effects (Desdobramento)
+  const factorANames = levelsA;
+  const factorAMeans = levelsA.map(la => sumA[la] / (b * r));
+  const factorACounts = levelsA.map(() => (design === 'DBC' ? b * r : data.length / a)); // b*r is correct for both if balanced
+
+  const factorBNames = levelsB;
+  const factorBMeans = levelsB.map(lb => sumB[lb] / (a * r));
+  const factorBCounts = levelsB.map(() => (design === 'DBC' ? a * r : data.length / b));
+
   return {
     table,
     overallMean,
@@ -187,6 +197,8 @@ export function anovaFatorialDuplo(
       factorA: pA !== null && pA < alpha,
       factorB: pB !== null && pB < alpha,
       interaction: pAB !== null && pAB < alpha
-    }
+    },
+    factorA: { names: factorANames, means: factorAMeans, counts: factorACounts },
+    factorB: { names: factorBNames, means: factorBMeans, counts: factorBCounts }
   } as FactorialAnovaResult;
 }

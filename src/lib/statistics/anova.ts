@@ -93,10 +93,12 @@ export function anovaDIC(
   const fc05 = fCritical(0.05, dfTreatment, dfError);
   const fc01 = fCritical(0.01, dfTreatment, dfError);
 
-  let significance = 'ns';
-  if (pValue !== null && pValue <= alpha) {
-    significance = alpha <= 0.01 ? '**' : '*';
+  function getSignificance(p: number | null, alpha: number): string {
+    if (p === null) return 'ns';
+    if (p <= alpha) return '*';
+    return 'ns';
   }
+  const significance = getSignificance(pValue, alpha);
 
   const cv = coefficientOfVariation(grandMean, msError);
 
@@ -239,15 +241,14 @@ export function anovaDBC(
   const fcBlock05 = fCritical(0.05, dfBlock, dfError);
   const fcBlock01 = fCritical(0.01, dfBlock, dfError);
 
-  let sigTreatment = 'ns';
-  if (pTreatment !== null && pTreatment <= alpha) {
-    sigTreatment = alpha <= 0.01 ? '**' : '*';
+  function getSignificance(p: number | null, alpha: number): string {
+    if (p === null) return 'ns';
+    if (p <= alpha) return '*';
+    return 'ns';
   }
 
-  let sigBlock = 'ns';
-  if (pBlock !== null && pBlock <= alpha) {
-    sigBlock = alpha <= 0.01 ? '**' : '*';
-  }
+  const sigTreatment = getSignificance(pTreatment, alpha);
+  const sigBlock = getSignificance(pBlock, alpha);
 
   const cv = coefficientOfVariation(grandMean, msError);
 

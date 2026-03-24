@@ -6,6 +6,7 @@
 import { mean as calcMean } from './utils';
 import { chiSquaredPValue } from './distributions';
 import { AnovaResult } from './anova';
+import { FactorialAnovaResult } from './factorialAnova';
 
 export interface ScottKnottGroup {
   treatmentName: string;
@@ -18,6 +19,9 @@ export interface ScottKnottGroup {
 export interface ScottKnottResult {
   groups: ScottKnottGroup[];
   numGroups: number;
+  isFactorial?: boolean;
+  mainA?: ScottKnottResult;
+  mainB?: ScottKnottResult;
 }
 
 /**
@@ -27,18 +31,41 @@ export interface ScottKnottResult {
  * testing significance with a chi-squared-like criterion.
  */
 export function scottKnott(
-  anovaResult: AnovaResult,
+  anovaResult: AnovaResult | FactorialAnovaResult,
   data: (number | null)[][],
   alpha: number = 0.05
 ): ScottKnottResult {
   const { mse, dfError, treatmentMeans, treatmentCounts, treatmentNames } = anovaResult;
+
+  const baseResult = calculateScottKnott(treatmentMeans, treatmentCounts, treatmentNames, mse, dfError, alpha);
+
+  if ('factorialSignificance' in anovaResult) {
+    const factAnova = anovaResult as FactorialAnovaResult;
+    if (!factAnova.factorialSignificance.interaction) {
+      baseResult.isFactorial = true;
+      baseResult.mainA = calculateScottKnott(factAnova.factorA.means, factAnova.factorA.counts, factAnova.factorA.names, mse, dfError, alpha);
+      baseResult.mainB = calculateScottKnott(factAnova.factorB.means, factAnova.factorB.counts, factAnova.factorB.names, mse, dfError, alpha);
+    }
+  }
+
+  return baseResult;
+}
+
+function calculateScottKnott(
+  treatmentMeans: number[],
+  treatmentCounts: number[],
+  treatmentNames: string[],
+  mse: number,
+  dfError: number,
+  alpha: number
+): ScottKnottResult {
   const k = treatmentMeans.length;
   const r = treatmentCounts.reduce((acc, curr) => acc + curr, 0) / k; // use average r if unbalanced
 
   // Create sorted indices by mean (descending)
   const sorted = treatmentMeans
     .map((m, i) => ({ index: i, mean: m, name: treatmentNames[i] }))
-    .sort((a, b) => a.mean - b.mean);
+    .sort((a, b) => b.mean - a.mean);
 
   // Recursive partition
   const groupAssignment = new Array(k).fill(0);

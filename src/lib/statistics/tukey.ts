@@ -5,6 +5,7 @@
 
 import { qCritical } from './distributions';
 import { AnovaResult } from './anova';
+import { FactorialAnovaResult } from './factorialAnova';
 
 export interface TukeyComparison {
   treatment1: string;
@@ -21,6 +22,9 @@ export interface TukeyResult {
   dms01: number | null;
   comparisons: TukeyComparison[];
   groups: TukeyGroup[];
+  isFactorial?: boolean;
+  mainA?: TukeyResult;
+  mainB?: TukeyResult;
 }
 
 export interface TukeyGroup {
@@ -34,11 +38,35 @@ export interface TukeyGroup {
  * Perform Tukey HSD test
  */
 export function tukeyHSD(
-  anovaResult: AnovaResult,
+  anovaResult: AnovaResult | FactorialAnovaResult,
   data: (number | null)[][],
   alpha: number = 0.05
 ): TukeyResult {
   const { mse, dfError, treatmentMeans, treatmentCounts, treatmentNames } = anovaResult;
+
+  const baseResult = calculateTukey(treatmentMeans, treatmentCounts, treatmentNames, mse, dfError, alpha);
+
+  if ('factorialSignificance' in anovaResult) {
+    const factAnova = anovaResult as FactorialAnovaResult;
+    // Se a interação for 'ns' (Não Significativa => interaction = false)
+    if (!factAnova.factorialSignificance.interaction) {
+      baseResult.isFactorial = true;
+      baseResult.mainA = calculateTukey(factAnova.factorA.means, factAnova.factorA.counts, factAnova.factorA.names, mse, dfError, alpha);
+      baseResult.mainB = calculateTukey(factAnova.factorB.means, factAnova.factorB.counts, factAnova.factorB.names, mse, dfError, alpha);
+    }
+  }
+
+  return baseResult;
+}
+
+function calculateTukey(
+  treatmentMeans: number[],
+  treatmentCounts: number[],
+  treatmentNames: string[],
+  mse: number,
+  dfError: number,
+  alpha: number
+): TukeyResult {
   const k = treatmentMeans.length;
 
   // Check if design is balanced
@@ -86,7 +114,7 @@ export function tukeyHSD(
 
   // Assign grouping letters
   const meansWithIndex = treatmentMeans.map((m, i) => ({ index: i, mean: m }));
-  const sorted = [...meansWithIndex].sort((a, b) => a.mean - b.mean);
+  const sorted = [...meansWithIndex].sort((a, b) => b.mean - a.mean);
   const qUsedForGroups = alpha <= 0.01 ? q01 : q05;
 
   // Build groups using absorption algorithm
