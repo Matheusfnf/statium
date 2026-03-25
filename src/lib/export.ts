@@ -13,7 +13,7 @@ import {
   AlignmentType,
   ImageRun,
 } from 'docx';
-import type { AnovaResult, TukeyResult, ScottKnottResult } from '@/lib/statistics';
+import type { AnovaResult, TukeyResult, ScottKnottResult, DunnettResult } from '@/lib/statistics';
 import { formatNumber } from '@/lib/statistics';
 
 /**
@@ -38,7 +38,8 @@ export function exportPDF(
   anovaResult: AnovaResult,
   tukeyResult: TukeyResult | null,
   scottKnottResult: ScottKnottResult | null,
-  comparisonMethod: 'tukey' | 'scott-knott',
+  dunnettResult: DunnettResult | null,
+  comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett',
   data: (number | null)[][],
   alpha: number
 ) {
@@ -144,13 +145,22 @@ export function exportPDF(
   y += 12;
 
   // Means Comparison
-  const groups =
-    comparisonMethod === 'tukey'
-      ? tukeyResult?.groups
-      : scottKnottResult?.groups;
+  let groups: { treatmentName: string; mean: number; letter: string }[] | undefined;
+  if (comparisonMethod === 'tukey') groups = tukeyResult?.groups;
+  else if (comparisonMethod === 'scott-knott') groups = scottKnottResult?.groups;
+  else if (comparisonMethod === 'dunnett' && dunnettResult) {
+    groups = [
+      { treatmentName: `${dunnettResult.controlName} (Controle)`, mean: dunnettResult.controlMean, letter: '-' },
+      ...dunnettResult.comparisons.map(c => ({
+        treatmentName: c.treatmentName,
+        mean: c.mean,
+        letter: c.significant ? '*' : 'ns'
+      }))
+    ];
+  }
 
   if (groups && groups.length > 0) {
-    const methodName = comparisonMethod === 'tukey' ? 'Tukey HSD' : 'Scott-Knott';
+    const methodName = comparisonMethod === 'tukey' ? 'Tukey HSD' : comparisonMethod === 'scott-knott' ? 'Scott-Knott' : 'Dunnett';
 
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
@@ -164,6 +174,16 @@ export function exportPDF(
       doc.setTextColor(80, 80, 80);
       doc.text(
         `DMS (5%) = ${tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (Tukey-Kramer)'}   |   DMS (1%) = ${tukeyResult.dms01 !== null ? formatNumber(tukeyResult.dms01, 4) : 'Variável (Tukey-Kramer)'}`,
+        14,
+        y + 4
+      );
+      y += 8;
+    } else if (comparisonMethod === 'dunnett' && dunnettResult) {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(80, 80, 80);
+      doc.text(
+        `DMS (${alpha <= 0.01 ? '1%' : '5%'}) = ${dunnettResult.dms05 !== null ? formatNumber(alpha <= 0.01 ? dunnettResult.dms01! : dunnettResult.dms05!, 4) : 'Variável'}`,
         14,
         y + 4
       );
@@ -212,7 +232,8 @@ export function exportCSV(
   anovaResult: AnovaResult,
   tukeyResult: TukeyResult | null,
   scottKnottResult: ScottKnottResult | null,
-  comparisonMethod: 'tukey' | 'scott-knott',
+  dunnettResult: DunnettResult | null,
+  comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett',
   alpha: number
 ) {
   const lines: string[] = [];
@@ -252,18 +273,29 @@ export function exportCSV(
   lines.push('');
 
   // Means Comparison
-  const groups =
-    comparisonMethod === 'tukey'
-      ? tukeyResult?.groups
-      : scottKnottResult?.groups;
+  let groups: { treatmentName: string; mean: number; letter: string }[] | undefined;
+  if (comparisonMethod === 'tukey') groups = tukeyResult?.groups;
+  else if (comparisonMethod === 'scott-knott') groups = scottKnottResult?.groups;
+  else if (comparisonMethod === 'dunnett' && dunnettResult) {
+    groups = [
+      { treatmentName: `${dunnettResult.controlName} (Controle)`, mean: dunnettResult.controlMean, letter: '-' },
+      ...dunnettResult.comparisons.map(c => ({
+        treatmentName: c.treatmentName,
+        mean: c.mean,
+        letter: c.significant ? '*' : 'ns'
+      }))
+    ];
+  }
 
   if (groups && groups.length > 0) {
-    const methodName = comparisonMethod === 'tukey' ? 'Tukey HSD' : 'Scott-Knott';
+    const methodName = comparisonMethod === 'tukey' ? 'Tukey HSD' : comparisonMethod === 'scott-knott' ? 'Scott-Knott' : 'Dunnett';
     lines.push(`COMPARAÇÃO DE MÉDIAS — ${methodName}`);
 
     if (comparisonMethod === 'tukey' && tukeyResult) {
       lines.push(`DMS (5%);${tukeyResult.dms05 !== null ? formatNumber(tukeyResult.dms05, 4) : 'Variável (Tukey-Kramer)'}`);
       lines.push(`DMS (1%);${tukeyResult.dms01 !== null ? formatNumber(tukeyResult.dms01, 4) : 'Variável (Tukey-Kramer)'}`);
+    } else if (comparisonMethod === 'dunnett' && dunnettResult) {
+      lines.push(`DMS (${alpha <= 0.01 ? '1%' : '5%'});${dunnettResult.dms05 !== null ? formatNumber(alpha <= 0.01 ? dunnettResult.dms01! : dunnettResult.dms05!, 4) : 'Variável'}`);
     }
 
     lines.push('Tratamento;Média;Grupo');
@@ -285,14 +317,14 @@ export interface ExportMeansTable {
 
 export async function exportMeansWord(
   variableName: string,
-  comparisonMethod: 'tukey' | 'scott-knott' | 'none',
+  comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett' | 'none',
   alpha: number,
   cv: number,
   tablesToExport: ExportMeansTable[]
 ) {
   if (tablesToExport.length === 0 || comparisonMethod === 'none') return;
 
-  const methodName = comparisonMethod === 'tukey' ? 'Tukey' : 'Scott-Knott';
+  const methodName = comparisonMethod === 'tukey' ? 'Tukey' : comparisonMethod === 'scott-knott' ? 'Scott-Knott' : 'Dunnett';
   const alphaPercent = `${(alpha * 100).toFixed(0)}%`;
 
   const sections: any[] = [];

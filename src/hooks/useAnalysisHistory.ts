@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import type { AnovaResult, TukeyResult, ScottKnottResult, DesignType } from '@/lib/statistics';
+import type { AnovaResult, TukeyResult, ScottKnottResult, DunnettResult, DesignType } from '@/lib/statistics';
 import { createClient } from '@/utils/supabase/client';
 
 export interface HistoryEntry {
@@ -19,7 +19,9 @@ export interface HistoryEntry {
   anovaResult: AnovaResult;
   tukeyResult: TukeyResult | null;
   scottKnottResult: ScottKnottResult | null;
-  comparisonMethod: 'tukey' | 'scott-knott' | 'none';
+  dunnettResult: DunnettResult | null;
+  controlTreatment: string;
+  comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett' | 'none';
   alpha: number;
 }
 
@@ -74,6 +76,8 @@ export function useAnalysisHistory() {
             anovaResult: row.anova_result as AnovaResult,
             tukeyResult: row.tukey_result as TukeyResult | null,
             scottKnottResult: row.scott_knott_result as ScottKnottResult | null,
+            dunnettResult: row.dunnett_result as DunnettResult | null,
+            controlTreatment: row.control_treatment || '',
             comparisonMethod: row.comparison_method as any,
             alpha: row.alpha,
           }));
@@ -99,7 +103,9 @@ export function useAnalysisHistory() {
       anovaResult: AnovaResult;
       tukeyResult: TukeyResult | null;
       scottKnottResult: ScottKnottResult | null;
-      comparisonMethod: 'tukey' | 'scott-knott' | 'none';
+      dunnettResult: DunnettResult | null;
+      controlTreatment: string;
+      comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett' | 'none';
       alpha: number;
     }) => {
       if (!user) {
@@ -125,6 +131,8 @@ export function useAnalysisHistory() {
           anova_result: params.anovaResult,
           tukey_result: params.tukeyResult,
           scott_knott_result: params.scottKnottResult,
+          dunnett_result: params.dunnettResult,
+          control_treatment: params.controlTreatment,
           comparison_method: params.comparisonMethod,
           alpha: params.alpha,
         })

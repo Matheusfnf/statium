@@ -6,10 +6,11 @@ import {
   anovaDBC,
   tukeyHSD,
   scottKnott,
+  dunnettTest,
   formatNumber,
   anovaFatorialDuplo,
 } from '@/lib/statistics';
-import type { AnovaResult, TukeyResult, ScottKnottResult, DesignType } from '@/lib/statistics';
+import type { AnovaResult, TukeyResult, ScottKnottResult, DunnettResult, DesignType } from '@/lib/statistics';
 import { exportPDF, exportCSV, exportMeansWord, exportAnovaWord } from '@/lib/export';
 import { validateGrid, getCellStates } from '@/lib/validation';
 import { HistoryEntry, useAnalysisHistory } from '@/hooks/useAnalysisHistory';
@@ -45,7 +46,9 @@ export default function AnalysisPage() {
   const [anovaResult, setAnovaResult] = useState<AnovaResult | null>(null);
   const [tukeyResult, setTukeyResult] = useState<TukeyResult | null>(null);
   const [scottKnottResult, setScottKnottResult] = useState<ScottKnottResult | null>(null);
-  const [comparisonMethod, setComparisonMethod] = useState<'none' | 'tukey' | 'scott-knott'>('none');
+  const [dunnettResult, setDunnettResult] = useState<DunnettResult | null>(null);
+  const [comparisonMethod, setComparisonMethod] = useState<'none' | 'tukey' | 'scott-knott' | 'dunnett'>('none');
+  const [controlTreatment, setControlTreatment] = useState<string>('');
   const [experimentType, setExperimentType] = useState<'simple' | 'factorial'>('simple');
   const [tidyDataFull, setTidyDataFull] = useState<{
     data: TidyDataRow[];
@@ -223,9 +226,11 @@ export default function AnalysisPage() {
 
     // Reset post-hoc — user will pick in next step
     setComparisonMethod('none');
+    setControlTreatment('');
     setTestSelected(false);
     setTukeyResult(null);
     setScottKnottResult(null);
+    setDunnettResult(null);
 
     // Always go to post-hoc selection, even if not significant (user preference)
     setCurrentStep(3);
@@ -240,27 +245,45 @@ export default function AnalysisPage() {
     setAnovaResult(result);
 
     setComparisonMethod('none');
+    setControlTreatment('');
     setTestSelected(false);
     setTukeyResult(null);
     setScottKnottResult(null);
+    setDunnettResult(null);
 
     // Always go to post-hoc selection, even if not significant (user preference)
     setCurrentStep(3);
   }, [design, alpha]);
 
-  // Run post-hoc test (called from results page)
-  const handleRunPostHoc = useCallback((method: 'tukey' | 'scott-knott') => {
+  // Run post-hoc test (called from results page/Step 3)
+  const handleRunPostHoc = useCallback((method: 'tukey' | 'scott-knott' | 'dunnett', control?: string) => {
     if (!anovaResult) return;
     setComparisonMethod(method);
     if (method === 'tukey') {
       const res = tukeyHSD(anovaResult, parsedData, alpha);
       setTukeyResult(res);
+      setTestSelected(true);
     } else if (method === 'scott-knott') {
       const sk = scottKnott(anovaResult, parsedData, alpha);
       setScottKnottResult(sk);
+      setTestSelected(true);
+    } else if (method === 'dunnett') {
+      const activeControl = control || controlTreatment;
+      // Logic executed on 'Analisar' button or right away if control is passed
+      if (activeControl) {
+        try {
+          const dunnett = dunnettTest(anovaResult, parsedData, activeControl, alpha);
+          setDunnettResult(dunnett);
+          setTestSelected(true);
+        } catch (e: any) {
+          alert('Erro ao calcular Dunnett: ' + e.message);
+          setTestSelected(false);
+        }
+      } else {
+        setTestSelected(false);
+      }
     }
-    setTestSelected(true);
-  }, [anovaResult, data, alpha]);
+  }, [anovaResult, parsedData, alpha, controlTreatment]);
 
   // Restart
   const handleRestart = useCallback(() => {
@@ -268,6 +291,8 @@ export default function AnalysisPage() {
     setAnovaResult(null);
     setTukeyResult(null);
     setScottKnottResult(null);
+    setDunnettResult(null);
+    setControlTreatment('');
     setData([]);
     setVariableName('');
     setAlpha(0.05);
@@ -278,14 +303,16 @@ export default function AnalysisPage() {
   const handleExportPDF = useCallback(() => {
     if (!anovaResult) return;
     const method = comparisonMethod === 'none' ? 'tukey' : comparisonMethod;
-    exportPDF(anovaResult, tukeyResult, scottKnottResult, method, parsedData, alpha);
-  }, [anovaResult, tukeyResult, scottKnottResult, comparisonMethod, parsedData, alpha]);
+    // @ts-ignore TODO update export func signature
+    exportPDF(anovaResult, tukeyResult, scottKnottResult, method, parsedData, alpha, dunnettResult);
+  }, [anovaResult, tukeyResult, scottKnottResult, dunnettResult, comparisonMethod, parsedData, alpha]);
 
   const handleExportCSV = useCallback(() => {
     if (!anovaResult) return;
     const method = comparisonMethod === 'none' ? 'tukey' : comparisonMethod;
-    exportCSV(anovaResult, tukeyResult, scottKnottResult, method, alpha);
-  }, [anovaResult, tukeyResult, scottKnottResult, comparisonMethod, alpha]);
+    // @ts-ignore TODO update export func signature
+    exportCSV(anovaResult, tukeyResult, scottKnottResult, method, alpha, dunnettResult);
+  }, [anovaResult, tukeyResult, scottKnottResult, dunnettResult, comparisonMethod, alpha]);
 
   const tablesToRender = useMemo(() => {
     const tables: { title: string; dmsText: React.ReactNode; dmsValueStr?: string; groups: any[] }[] = [];
@@ -342,9 +369,24 @@ export default function AnalysisPage() {
           groups: scottKnottResult.groups
         });
       }
+    } else if (comparisonMethod === 'dunnett' && dunnettResult) {
+      tables.push({
+        title: experimentType === 'simple' ? "Dunnett (Tratamentos vs Control)" : "Dunnett (Iteração vs Control)",
+        dmsText: `DMS (${alpha <= 0.01 ? '1%' : '5%'}) = ${dunnettResult.dms05 !== null ? formatNumber(alpha <= 0.01 ? dunnettResult.dms01! : dunnettResult.dms05!, 4) : 'Variável'}`,
+        dmsValueStr: dunnettResult.dms05 !== null ? formatNumber(alpha <= 0.01 ? dunnettResult.dms01! : dunnettResult.dms05!, 2) : 'Variável',
+        groups: [
+          { treatmentName: `${dunnettResult.controlName} (Controle)`, mean: dunnettResult.controlMean, difference: '', letter: '-' },
+          ...dunnettResult.comparisons.map(c => ({
+            treatmentName: c.treatmentName,
+            mean: c.mean,
+            difference: formatNumber(c.difference, 4),
+            letter: c.significant ? '*' : 'ns'
+          }))
+        ]
+      });
     }
     return tables;
-  }, [comparisonMethod, tukeyResult, scottKnottResult, alpha, experimentType, tidyDataFull]);
+  }, [comparisonMethod, tukeyResult, scottKnottResult, dunnettResult, alpha, experimentType, tidyDataFull]);
 
   const handleExportMeansWord = useCallback(() => {
     if (!anovaResult) return;
@@ -382,6 +424,8 @@ export default function AnalysisPage() {
       anovaResult,
       tukeyResult,
       scottKnottResult,
+      dunnettResult,
+      controlTreatment,
       comparisonMethod: comparisonMethod === 'none' ? 'tukey' : comparisonMethod,
       alpha,
     });
@@ -392,6 +436,8 @@ export default function AnalysisPage() {
     anovaResult,
     tukeyResult,
     scottKnottResult,
+    dunnettResult,
+    controlTreatment,
     design,
     numTreatments,
     numReps,
@@ -425,6 +471,8 @@ export default function AnalysisPage() {
       setAnovaResult(entry.anovaResult);
       setTukeyResult(entry.tukeyResult);
       setScottKnottResult(entry.scottKnottResult);
+      setDunnettResult(entry.dunnettResult || null);
+      setControlTreatment(entry.controlTreatment || '');
       setComparisonMethod(entry.comparisonMethod);
       setAlpha(entry.alpha ?? 0.05);
 
@@ -517,10 +565,10 @@ export default function AnalysisPage() {
           <div className={styles.card}>
             <h2 className={styles.cardTitle}>
               <span className={styles.cardTitleIcon}>🧪</span>
-              Qual tipo de análise deseja realizar?
+              Qual análise você deseja realizar?
             </h2>
             <p style={{ color: 'var(--text-tertiary)', fontSize: '0.9rem', marginBottom: 'var(--space-xl)' }}>
-              Selecione o método estatístico adequado ao seu estudo.
+              Escolha a ferramenta estatística que melhor responde aos objetivos da sua pesquisa.
             </p>
 
             <div className={styles.analysisTypeGrid}>
@@ -530,16 +578,17 @@ export default function AnalysisPage() {
               >
                 <div className={styles.analysisTypeIcon}>📊</div>
                 <div className={styles.analysisTypeTitle}>Comparação de Médias</div>
-                <div className={styles.analysisTypeName}>ANOVA + Pós-teste</div>
+                <div className={styles.analysisTypeName}>ANOVA e Pós-testes</div>
                 <div className={styles.analysisTypeDesc}>
-                  Análise de variância (ANOVA) para detectar efeito de tratamentos, seguida de testes de comparação múltipla (pós-testes).
+                  Descubra se há diferenças significativas entre os tratamentos do seu experimento.
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 'var(--space-md)', fontStyle: 'italic' }}>
-                  Recomendado para experimentos com tratamentos e repetições
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 'var(--space-md)', fontStyle: 'italic', minHeight: '36px' }}>
+                  Ideal para fatores qualitativos (ex: cultivares, genótipos, dietas, marcas).
                 </div>
                 <div className={styles.analysisTypeTests}>
                   <span>DIC / DBC</span>
-                  <span>Suporte a Tukey, Scott-Knott e Duncan</span>
+                  <span>Fatorial</span>
+                  <span>Tukey, Scott-Knott e Duncan</span>
                 </div>
               </button>
 
@@ -550,9 +599,12 @@ export default function AnalysisPage() {
                 <div className={styles.analysisTypeBadge}>Em breve</div>
                 <div className={styles.analysisTypeIcon}>📈</div>
                 <div className={styles.analysisTypeTitle}>Regressão</div>
-                <div className={styles.analysisTypeName}>Análise de Regressão</div>
+                <div className={styles.analysisTypeName}>Modelagem de Dados</div>
                 <div className={styles.analysisTypeDesc}>
-                  Modela a relação entre variáveis com equações polinomiais. Útil para doses e concentrações.
+                  Entenda o comportamento de uma variável em resposta a outra através do ajuste de curvas.
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 'var(--space-md)', fontStyle: 'italic', minHeight: '36px' }}>
+                  Ideal para fatores quantitativos (ex: doses de adubo, concentrações, tempo).
                 </div>
                 <div className={styles.analysisTypeTests}>
                   <span>Linear</span>
@@ -567,9 +619,12 @@ export default function AnalysisPage() {
                 <div className={styles.analysisTypeBadge}>Em breve</div>
                 <div className={styles.analysisTypeIcon}>🔗</div>
                 <div className={styles.analysisTypeTitle}>Correlação</div>
-                <div className={styles.analysisTypeName}>Análise de Correlação</div>
+                <div className={styles.analysisTypeName}>Associação Linear</div>
                 <div className={styles.analysisTypeDesc}>
-                  Mede a força e direção da relação entre duas ou mais variáveis.
+                  Avalie a força e a direção da relação entre duas ou mais variáveis contínuas.
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 'var(--space-md)', fontStyle: 'italic', minHeight: '36px' }}>
+                  Descubra se variáveis crescem ou diminuem juntas, sem prever causa e efeito.
                 </div>
                 <div className={styles.analysisTypeTests}>
                   <span>Pearson</span>
@@ -584,14 +639,16 @@ export default function AnalysisPage() {
                 <div className={styles.analysisTypeBadge}>Em breve</div>
                 <div className={styles.analysisTypeIcon}>📝</div>
                 <div className={styles.analysisTypeTitle}>Descritiva</div>
-                <div className={styles.analysisTypeName}>Estatística Descritiva</div>
+                <div className={styles.analysisTypeName}>Resumo de Dados</div>
                 <div className={styles.analysisTypeDesc}>
-                  Medidas de tendência central, dispersão e distribuição dos dados.
+                  Compreenda rapidamente o perfil da sua amostra com medidas estatísticas básicas.
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 'var(--space-md)', fontStyle: 'italic', minHeight: '36px' }}>
+                  Passo inicial fundamental para explorar e conhecer os dados do seu estudo.
                 </div>
                 <div className={styles.analysisTypeTests}>
-                  <span>Média</span>
-                  <span>Mediana</span>
-                  <span>Desvio Padrão</span>
+                  <span>Média, Mediana</span>
+                  <span>Desvio Padrão, CV%</span>
                 </div>
               </button>
             </div>
@@ -899,8 +956,18 @@ export default function AnalysisPage() {
                 </div>
               </button>
               <button
+                className={`${styles.analysisTypeCardSmall} ${comparisonMethod === 'dunnett' ? styles.analysisTypeCardActive : ''}`}
+                onClick={() => handleRunPostHoc('dunnett')}
+              >
+                <div className={styles.analysisTypeIconSmall}>🎯</div>
+                <div className={styles.analysisTypeTitleSmall}>Dunnett</div>
+                <div className={styles.analysisTypeDescSmall}>
+                  Compara os tratamentos contra uma testemunha (controle).
+                </div>
+              </button>
+              <button
                 className={`${styles.analysisTypeCardSmall} ${testSelected && comparisonMethod === 'none' ? styles.analysisTypeCardActive : ''}`}
-                onClick={() => { setComparisonMethod('none'); setTukeyResult(null); setScottKnottResult(null); setTestSelected(true); }}
+                onClick={() => { setComparisonMethod('none'); setTukeyResult(null); setScottKnottResult(null); setDunnettResult(null); setTestSelected(true); }}
               >
                 <div className={styles.analysisTypeIconSmall}>➡️</div>
                 <div className={styles.analysisTypeTitleSmall}>Nenhum</div>
@@ -910,6 +977,32 @@ export default function AnalysisPage() {
               </button>
             </div>
 
+            {comparisonMethod === 'dunnett' && (
+              <div className={styles.field} style={{ marginTop: 'var(--space-lg)' }}>
+                <label className={styles.label}>Selecione o Tratamento Testemunha (Controle)</label>
+                <select 
+                  className={styles.input} 
+                  value={controlTreatment} 
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setControlTreatment(value);
+                    if (value) {
+                       // Pre-trigger to set test selected valid
+                       setTestSelected(true);
+                       handleRunPostHoc('dunnett', value); // Recalculates immediately or on Analyze
+                    } else {
+                       setTestSelected(false);
+                    }
+                  }}
+                >
+                  <option value="">-- Escolha um tratamento --</option>
+                  {anovaResult.treatmentNames.map((name, i) => (
+                    <option key={i} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className={styles.buttonRow} style={{ marginTop: 'var(--space-2xl)' }}>
               <button className={styles.btnSecondary} onClick={() => setCurrentStep(2)}>
                 ← Voltar aos Dados
@@ -917,8 +1010,13 @@ export default function AnalysisPage() {
               <div style={{ flex: 1 }} />
               <button
                 className={styles.btnPrimary}
-                onClick={() => setCurrentStep(4)}
-                disabled={!testSelected}
+                onClick={() => {
+                  if (comparisonMethod === 'dunnett' && controlTreatment) {
+                    handleRunPostHoc('dunnett'); // ensure it calculates before proceeding
+                  }
+                  setCurrentStep(4);
+                }}
+                disabled={!testSelected || (comparisonMethod === 'dunnett' && !controlTreatment)}
               >
                 Analisar 🔬
               </button>
@@ -1148,7 +1246,7 @@ export default function AnalysisPage() {
             </div>
 
             {/* Means Comparison Results (Conditional) */}
-            {(comparisonMethod === 'tukey' || comparisonMethod === 'scott-knott') && (() => {
+            {(comparisonMethod === 'tukey' || comparisonMethod === 'scott-knott' || comparisonMethod === 'dunnett') && (() => {
               
               if (tablesToRender.length === 0) return null;
 
@@ -1170,7 +1268,7 @@ export default function AnalysisPage() {
                         fontWeight: '700',
                         letterSpacing: '0.5px'
                       }}>
-                        {comparisonMethod === 'tukey' ? 'TESTE DE TUKEY' : 'TESTE DE SCOTT-KNOTT'}
+                        {comparisonMethod === 'tukey' ? 'TESTE DE TUKEY' : comparisonMethod === 'scott-knott' ? 'TESTE DE SCOTT-KNOTT' : 'TESTE DE DUNNETT'}
                       </span>
                     </h2>
                     <button
@@ -1193,8 +1291,10 @@ export default function AnalysisPage() {
                       <div className={styles.alphaSelect}>
                         {comparisonMethod === 'tukey' ? (
                           <>Teste de Tukey (HSD) — {table.dmsText}</>
-                        ) : (
+                        ) : comparisonMethod === 'scott-knott' ? (
                           <>Teste de Scott-Knott — {table.dmsText}</>
+                        ) : (
+                          <>Teste de Dunnett — {table.dmsText}</>
                         )}
                       </div>
                       <table className={styles.meansTable}>
@@ -1202,18 +1302,24 @@ export default function AnalysisPage() {
                           <tr>
                             <th>Tratamento</th>
                             <th>Média</th>
-                            <th>Grupo</th>
+                            {comparisonMethod === 'dunnett' && <th>Diferença</th>}
+                            <th>{comparisonMethod === 'dunnett' ? 'Sig.' : 'Grupo'}</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {[...table.groups].sort((a, b) => a.mean - b.mean).map((g, i) => (
+                          {[...table.groups].sort((a, b) => b.mean - a.mean).map((g, i) => (
                             <tr key={i}>
                               <td>{g.treatmentName}</td>
                               <td style={{ fontFamily: 'var(--font-mono)' }}>
                                 {formatNumber(g.mean, 4)}
                               </td>
+                              {comparisonMethod === 'dunnett' && (
+                                <td style={{ fontFamily: 'var(--font-mono)' }}>
+                                  {g.difference || '-'}
+                                </td>
+                              )}
                               <td>
-                                <span className={styles.letterBadge}>{g.letter}</span>
+                                <span className={comparisonMethod === 'dunnett' ? (g.letter === '*' ? styles.sigStar : (g.letter === 'ns' ? styles.sigNs : styles.letterBadge)) : styles.letterBadge}>{g.letter}</span>
                               </td>
                             </tr>
                           ))}
@@ -1223,7 +1329,11 @@ export default function AnalysisPage() {
                   ))}
 
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: 'var(--space-sm)' }}>
-                    Médias seguidas da mesma letra não diferem entre si ao nível de {alpha * 100}% de probabilidade.
+                    {comparisonMethod === 'dunnett' ? 
+                      '* = difere da testemunha (p < ' + alpha + '); ns = não significativo.'
+                    :
+                      `Médias seguidas da mesma letra não diferem entre si ao nível de ${alpha * 100}% de probabilidade.`
+                    }
                   </p>
                   <button
                     className={styles.btnSecondary}
@@ -1272,10 +1382,16 @@ export default function AnalysisPage() {
                         mean: g.mean,
                         letter: g.letter,
                       })) || []
-                      : scottKnottResult?.groups.map((g) => ({
+                      : comparisonMethod === 'scott-knott'
+                      ? scottKnottResult?.groups.map((g) => ({
                         name: g.treatmentName,
                         mean: g.mean,
                         letter: g.letter,
+                      })) || []
+                      : dunnettResult?.comparisons.map((g) => ({
+                        name: g.treatmentName,
+                        mean: g.mean,
+                        letter: g.significant ? '*' : 'ns',
                       })) || []
                   }
                   data={parsedData}

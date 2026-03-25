@@ -4,6 +4,7 @@ export { tukeyHSD } from './tukey';
 export type { TukeyResult, TukeyGroup, TukeyComparison } from './tukey';
 export { scottKnott } from './scott-knott';
 export type { ScottKnottResult, ScottKnottGroup } from './scott-knott';
+export * from './dunnett';
 export { fPValue, fCritical, qCritical, chiSquaredPValue } from './distributions';
 export { mean, variance, standardDeviation, standardError, formatNumber, coefficientOfVariation } from './utils';
 export { bartlettTest, shapiroWilk } from './assumptions';
