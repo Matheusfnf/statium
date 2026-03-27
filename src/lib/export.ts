@@ -12,6 +12,8 @@ import {
   BorderStyle,
   AlignmentType,
   ImageRun,
+  VerticalAlign,
+  ShadingType,
 } from 'docx';
 import type { AnovaResult, TukeyResult, ScottKnottResult, DunnettResult } from '@/lib/statistics';
 import { formatNumber } from '@/lib/statistics';
@@ -640,4 +642,163 @@ export async function exportChartWord(
 
   const blob = await Packer.toBlob(doc);
   downloadBlob(blob, `grafico-artigo-${new Date().toISOString().slice(0, 10)}.docx`);
+}
+
+export function exportLayoutPDF(layout: { id: number; treatment: string; rep: number }[], columns: number) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let y = 20;
+
+  // Header 
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(99, 220, 190);
+  doc.text('Statium', 14, y);
+  
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(148, 163, 184);
+  doc.text('Croqui Casualizado - Experimento DIC', 14, y + 8);
+
+  const now = new Date();
+  doc.setFontSize(9);
+  doc.text(
+    `Gerado em: ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR')}`,
+    pageWidth - 14,
+    y,
+    { align: 'right' }
+  );
+
+  y += 20;
+
+  // Divider
+  doc.setDrawColor(99, 220, 190);
+  doc.setLineWidth(0.5);
+  doc.line(14, y, pageWidth - 14, y);
+  y += 10;
+  
+  // Create table data based on the layout
+  const actualCols = columns > 0 ? columns : Math.ceil(Math.sqrt(layout.length));
+  const bodyData: any[][] = [];
+  let currentRow: any[] = [];
+  
+  layout.forEach((plot, index) => {
+    const cellText = `${plot.treatment}\nRep ${plot.rep}\n[P: ${plot.id}]`;
+    currentRow.push(cellText);
+
+    if ((index + 1) % actualCols === 0 || index === layout.length - 1) {
+      while (currentRow.length < actualCols) {
+        currentRow.push('');
+      }
+      bodyData.push(currentRow);
+      currentRow = [];
+    }
+  });
+
+  const headCols = Array.from({length: actualCols}, (_, i) => `Coluna ${i + 1}`);
+
+  autoTable(doc, {
+    startY: y,
+    head: [headCols],
+    body: bodyData,
+    theme: 'grid',
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+    styles: { fontSize: 10, cellPadding: 6, halign: 'center', valign: 'middle', minCellHeight: 22, overflow: 'linebreak' },
+    margin: { left: 14, right: 14 },
+  });
+
+  const pdfArrayBuffer = doc.output('arraybuffer');
+  const pdfBlob = new Blob([pdfArrayBuffer], { type: 'application/pdf' });
+}
+
+export async function exportLayoutDocx(layout: { id: number; treatment: string; rep: number }[], columns: number) {
+  const actualCols = columns > 0 ? columns : Math.ceil(Math.sqrt(layout.length));
+  
+  const bodyData: any[][] = [];
+  let currentRow: any[] = [];
+  
+  layout.forEach((plot, index) => {
+    const cellText = `${plot.treatment}\nRep ${plot.rep}\n[P: ${plot.id}]`;
+    currentRow.push(cellText);
+
+    if ((index + 1) % actualCols === 0 || index === layout.length - 1) {
+      while (currentRow.length < actualCols) {
+        currentRow.push('');
+      }
+      bodyData.push(currentRow);
+      currentRow = [];
+    }
+  });
+
+  const tableRows = [
+    new TableRow({
+      children: Array.from({length: actualCols}, (_, i) => 
+        new TableCell({
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: `Coluna ${i + 1}`, color: "ffffff", bold: true })],
+              alignment: AlignmentType.CENTER 
+            })
+          ],
+          shading: { fill: "1e293b", type: ShadingType.CLEAR, color: "auto" },
+          verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 150, bottom: 150, left: 150, right: 150 },
+        })
+      )
+    }),
+    ...bodyData.map(row => 
+      new TableRow({
+        children: row.map(cell => 
+          new TableCell({
+            children: cell.split('\n').map((line: string) => 
+              new Paragraph({ text: line, alignment: AlignmentType.CENTER })
+            ),
+            verticalAlign: VerticalAlign.CENTER,
+            margins: { top: 150, bottom: 150, left: 150, right: 150 },
+          })
+        )
+      })
+    )
+  ];
+
+  const table = new Table({
+    width: {
+      size: 100,
+      type: WidthType.PERCENTAGE,
+    },
+    columnWidths: Array(actualCols).fill(9000 / actualCols),
+    rows: tableRows,
+  });
+
+  const doc = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Statium", bold: true, size: 44, color: "63dcbe" })
+            ],
+            alignment: AlignmentType.LEFT,
+          }),
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Croqui Casualizado - Experimento DIC", size: 20, color: "94a3b8" })
+            ],
+            alignment: AlignmentType.LEFT,
+            spacing: { after: 200 }
+          }),
+          new Paragraph({
+            text: `Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`,
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 400 }
+          }),
+          table,
+        ]
+      }
+    ]
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const now = new Date();
+  downloadBlob(blob, `statium-croqui-${now.toISOString().slice(0, 10)}.docx`);
 }

@@ -342,6 +342,7 @@
   padding: var(--space-3xl) var(--space-xl);
   max-width: 1200px;
   margin: 0 auto;
+  scroll-margin-top: 100px;
 }
 
 .stepsRow {

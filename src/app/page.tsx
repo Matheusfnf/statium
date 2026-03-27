@@ -32,8 +32,8 @@ export default function Home() {
                   <polyline points="12 5 19 12 12 19" />
                 </svg>
               </Link>
-              <a href="#features" className={styles.btnOutline}>
-                Conheça os recursos
+              <a href="#how-it-works" className={styles.btnOutline}>
+                Como funciona
               </a>
             </div>
             <div className={styles.heroStats}>
@@ -94,18 +94,47 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Features Section */}
-        <section className={styles.features} id="features">
+        {/* How It Works & Features */}
+        <section className={styles.howItWorks} id="how-it-works">
           <div className={styles.sectionHeader}>
-            <span className={styles.sectionTag}>Recursos</span>
+            <span className={styles.sectionTag}>Como funciona e Recursos</span>
             <h2 className={styles.sectionTitle}>
-              Tudo que você precisa para{' '}
-              <span className="gradient-text">análise experimental</span>
+              Tudo que você precisa em{' '}
+              <span className="gradient-text">três passos simples</span>
             </h2>
             <p className={styles.sectionDescription}>
-              Ferramentas poderosas integradas em uma interface elegante, 
-              projetada para pesquisadores e cientistas.
+              Ferramentas poderosas integradas em uma interface elegante, gerando 
+              resultados instantâneos para sua pesquisa.
             </p>
+          </div>
+
+          <div className={styles.stepsRow} style={{ marginBottom: 'var(--space-3xl)' }}>
+            <div className={styles.stepCard}>
+              <div className={styles.stepNumber}>1</div>
+              <h3 className={styles.stepTitle}>Configure</h3>
+              <p className={styles.stepDescription}>
+                Escolha o delineamento (DIC ou DBC), defina o número de tratamentos 
+                e repetições.
+              </p>
+            </div>
+            <div className={styles.stepArrow}>→</div>
+            <div className={styles.stepCard}>
+              <div className={styles.stepNumber}>2</div>
+              <h3 className={styles.stepTitle}>Insira os dados</h3>
+              <p className={styles.stepDescription}>
+                Digite ou cole seus dados experimentais diretamente na tabela 
+                interativa.
+              </p>
+            </div>
+            <div className={styles.stepArrow}>→</div>
+            <div className={styles.stepCard}>
+              <div className={styles.stepNumber}>3</div>
+              <h3 className={styles.stepTitle}>Analise</h3>
+              <p className={styles.stepDescription}>
+                Receba ANOVA, comparação de médias e gráficos instantaneamente — sem 
+                espera.
+              </p>
+            </div>
           </div>
 
           <div className={styles.featuresGrid}>
@@ -160,46 +189,6 @@ export default function Home() {
               <p className={styles.featureDescription}>
                 Todos os cálculos rodam localmente no seu navegador. Nenhum dado é 
                 enviado para servidores — privacidade total.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* How It Works */}
-        <section className={styles.howItWorks} id="how-it-works">
-          <div className={styles.sectionHeader}>
-            <span className={styles.sectionTag}>Como Funciona</span>
-            <h2 className={styles.sectionTitle}>
-              Três passos para seus{' '}
-              <span className="gradient-text">resultados</span>
-            </h2>
-          </div>
-
-          <div className={styles.stepsRow}>
-            <div className={styles.stepCard}>
-              <div className={styles.stepNumber}>1</div>
-              <h3 className={styles.stepTitle}>Configure</h3>
-              <p className={styles.stepDescription}>
-                Escolha o delineamento (DIC ou DBC), defina o número de tratamentos 
-                e repetições.
-              </p>
-            </div>
-            <div className={styles.stepArrow}>→</div>
-            <div className={styles.stepCard}>
-              <div className={styles.stepNumber}>2</div>
-              <h3 className={styles.stepTitle}>Insira os dados</h3>
-              <p className={styles.stepDescription}>
-                Digite ou cole seus dados experimentais diretamente na tabela 
-                interativa.
-              </p>
-            </div>
-            <div className={styles.stepArrow}>→</div>
-            <div className={styles.stepCard}>
-              <div className={styles.stepNumber}>3</div>
-              <h3 className={styles.stepTitle}>Analise</h3>
-              <p className={styles.stepDescription}>
-                Receba ANOVA, comparação de médias e gráficos instantaneamente — sem 
-                espera.
               </p>
             </div>
           </div>

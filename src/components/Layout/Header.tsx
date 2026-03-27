@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import AuthModal from '@/components/Auth/AuthModal';
 import styles from './Header.module.css';
@@ -11,6 +12,7 @@ export default function Header() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
   const supabase = createClient();
 
   useEffect(() => {
@@ -36,6 +38,16 @@ export default function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleHowItWorksClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (pathname === '/') {
+      e.preventDefault();
+      const element = document.getElementById('how-it-works');
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  };
+
   return (
     <header className={styles.header}>
       <Link href="/" className={styles.logo}>
@@ -44,10 +56,10 @@ export default function Header() {
       </Link>
 
       <nav className={styles.nav}>
-        <Link href="/#features" className={styles.navLink}>
-          Recursos
+        <Link href="/randomizer" className={styles.navLink}>
+          Gerador DIC
         </Link>
-        <Link href="/#how-it-works" className={styles.navLink}>
+        <Link href="/#how-it-works" className={styles.navLink} onClick={handleHowItWorksClick}>
           Como Funciona
         </Link>
         <Link href="/analysis" className={styles.ctaButton}>
