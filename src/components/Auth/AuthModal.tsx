@@ -50,9 +50,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   };
 
   return (
-    <>
-      <div className={styles.overlay} onClick={onClose} />
-      <div className={styles.modal}>
+    <div className={styles.overlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.header}>
           <div className={styles.titleWrapper}>
             <div className={styles.logoIcon}>S</div>
@@ -115,6 +114,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </div>
         </form>
       </div>
-    </>
+    </div>
   );
 }
