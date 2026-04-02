@@ -11,3 +11,4 @@ export { bartlettTest, shapiroWilk } from './assumptions';
 export type { AssumptionResult } from './assumptions';
 export { anovaFatorialDuplo } from './factorialAnova';
 export type { FactorialAnovaResult } from './factorialAnova';
+export * from './regression';

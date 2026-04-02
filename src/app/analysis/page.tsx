@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import {
   anovaDIC,
   anovaDBC,
@@ -661,11 +662,10 @@ export default function AnalysisPage() {
                 </div>
               </button>
 
-              <button
-                className={`${styles.analysisTypeCard} ${styles.analysisTypeCardDisabled}`}
-                disabled
+              <Link
+                className={styles.analysisTypeCard}
+                href="/regression"
               >
-                <div className={styles.analysisTypeBadge}>Em breve</div>
                 <div className={styles.analysisTypeIcon}>📈</div>
                 <div className={styles.analysisTypeTitle}>Regressão</div>
                 <div className={styles.analysisTypeName}>Modelagem de Dados</div>
@@ -678,8 +678,9 @@ export default function AnalysisPage() {
                 <div className={styles.analysisTypeTests}>
                   <span>Linear</span>
                   <span>Quadrática</span>
+                  <span>Cúbica</span>
                 </div>
-              </button>
+              </Link>
 
               <button
                 className={`${styles.analysisTypeCard} ${styles.analysisTypeCardDisabled}`}

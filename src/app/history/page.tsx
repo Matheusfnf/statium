@@ -41,46 +41,98 @@ export default function HistoryPage() {
             </Link>
           </div>
         ) : (
-          <div className={styles.grid}>
-            {entries.map((entry) => (
-              <div key={entry.id} className={styles.card}>
-                <div className={styles.cardHeader}>
-                  <div>
-                    <h3 className={styles.cardTitle}>{entry.variableName || 'S/ Nome'}</h3>
-                    <div className={styles.cardDate}>{formatDate(entry.timestamp)}</div>
-                  </div>
-                </div>
+          <>
+            {entries.filter(e => e.comparisonMethod !== 'regression').length > 0 && (
+              <div style={{ marginBottom: '3rem' }}>
+                <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem', color: 'var(--text-primary)' }}>Testes de Médias (ANOVA, Fatorial, etc)</h2>
+                <div className={styles.grid}>
+                  {entries.filter(e => e.comparisonMethod !== 'regression').map((entry) => (
+                    <div key={entry.id} className={styles.card}>
+                      <div className={styles.cardHeader}>
+                        <div>
+                          <h3 className={styles.cardTitle}>{entry.variableName || 'S/ Nome'}</h3>
+                          <div className={styles.cardDate}>{formatDate(entry.timestamp)}</div>
+                        </div>
+                      </div>
 
-                <div className={styles.cardBody}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '8px' }}>
-                    <strong>Modelo:</strong> {entry.label}
-                  </p>
-                  <div className={styles.tagGroup}>
-                    <span className={styles.tag}>{entry.numTreatments} tratamentos</span>
-                    <span className={styles.tag}>{entry.numReps} repetições</span>
-                    <span className={styles.tag}>{entry.design}</span>
-                  </div>
-                </div>
+                      <div className={styles.cardBody}>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '8px' }}>
+                          <strong>Modelo:</strong> {entry.label}
+                        </p>
+                        <div className={styles.tagGroup}>
+                          <span className={styles.tag}>{entry.numTreatments} tratamentos</span>
+                          <span className={styles.tag}>{entry.numReps} repetições</span>
+                          <span className={styles.tag}>{entry.design}</span>
+                        </div>
+                      </div>
 
-                <div className={styles.cardFooter}>
-                  <Link href={`/analysis?historyId=${entry.id}`} className={styles.openBtn}>
-                    Abrir Análise
-                  </Link>
-                  <button 
-                    className={styles.deleteBtn}
-                    onClick={() => {
-                      if (confirm('Tem certeza que deseja excluir este favorito?')) {
-                        remove(entry.id);
-                      }
-                    }}
-                    title="Excluir"
-                  >
-                    🗑️
-                  </button>
+                      <div className={styles.cardFooter}>
+                        <Link href={`/analysis?historyId=${entry.id}`} className={styles.openBtn}>
+                          Abrir Análise
+                        </Link>
+                        <button 
+                          className={styles.deleteBtn}
+                          onClick={() => {
+                            if (confirm('Tem certeza que deseja excluir este favorito?')) {
+                              remove(entry.id);
+                            }
+                          }}
+                          title="Excluir"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+
+            {entries.filter(e => e.comparisonMethod === 'regression').length > 0 && (
+              <div>
+                <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem', color: 'var(--text-primary)' }}>Regressões Polinomiais</h2>
+                <div className={styles.grid}>
+                  {entries.filter(e => e.comparisonMethod === 'regression').map((entry) => (
+                    <div key={entry.id} className={styles.card}>
+                      <div className={styles.cardHeader}>
+                        <div>
+                          <h3 className={styles.cardTitle}>{entry.variableName || 'S/ Nome'}</h3>
+                          <div className={styles.cardDate}>{formatDate(entry.timestamp)}</div>
+                        </div>
+                      </div>
+
+                      <div className={styles.cardBody}>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '8px' }}>
+                          <strong>Modelo:</strong> Regressão {entry.design}
+                        </p>
+                        <div className={styles.tagGroup}>
+                          <span className={styles.tag}>{entry.numTreatments} doses</span>
+                          <span className={styles.tag}>{entry.numReps} repetições</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.cardFooter}>
+                        <Link href={`/regression?historyId=${entry.id}`} className={styles.openBtn}>
+                          Abrir Regressão
+                        </Link>
+                        <button 
+                          className={styles.deleteBtn}
+                          onClick={() => {
+                            if (confirm('Tem certeza que deseja excluir esta regressão?')) {
+                              remove(entry.id);
+                            }
+                          }}
+                          title="Excluir"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
     </>

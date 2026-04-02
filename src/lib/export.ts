@@ -926,3 +926,168 @@ export async function exportLayoutDocx(layout: { id: number; treatment: string; 
   const now = new Date();
   downloadBlob(blob, `statium-croqui-${now.toISOString().slice(0, 10)}.docx`);
 }
+
+import type { RegressionResult } from '@/lib/statistics/regression';
+
+export async function exportRegressionWord(
+  variableName: string,
+  anovaResult: AnovaResult,
+  regressionResult: RegressionResult,
+  alpha: number
+) {
+  const children: any[] = [];
+  
+  // Header
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Statium", bold: true, size: 44, color: "63dcbe" })
+      ],
+      alignment: AlignmentType.LEFT,
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: `Relatório de Regressão Polinomial - ${variableName}`, size: 20, color: "94a3b8" })
+      ],
+      alignment: AlignmentType.LEFT,
+      spacing: { after: 200 }
+    }),
+    new Paragraph({
+      text: `Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`,
+      alignment: AlignmentType.RIGHT,
+      spacing: { after: 400 }
+    })
+  );
+
+  // Model Summary
+  const modelRows = [
+    new TableRow({
+      children: ['Grau', 'Eq. Ajustada', 'R²', 'P-Valor (Seq)', 'P-Valor (Desvios)'].map(header => 
+        new TableCell({
+          children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })],
+          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
+        })
+      )
+    }),
+    ...regressionResult.models.map((mod, k) => new TableRow({
+      children: [
+        new TableCell({ children: [new Paragraph(mod.name + (k === regressionResult.bestModelIndex ? ' (Melhor Modelo)' : ''))] }),
+        new TableCell({ children: [new Paragraph(mod.equation)] }),
+        new TableCell({ children: [new Paragraph(`${(mod.r2 * 100).toFixed(2)}%`)] }),
+        new TableCell({ children: [new Paragraph(`${formatNumber(mod.pSequential)} ${mod.pSequential <= alpha ? '*' : 'ns'}`)] }),
+        new TableCell({ children: [new Paragraph(`${formatNumber(mod.pDeviations)} ${mod.pDeviations > alpha ? 'ns' : '*'}`)] }),
+      ]
+    }))
+  ];
+
+  children.push(
+    new Paragraph({
+      children: [new TextRun({ text: "Ajustes do Modelo", bold: true, size: 24 })],
+      spacing: { before: 400, after: 200 }
+    }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: modelRows
+    })
+  );
+
+  // ANOVA Table
+  const anovaRows = [
+    new TableRow({
+      children: ['Fonte de Variação', 'GL', 'SQ', 'QM', 'F calc', 'p-valor'].map(header => 
+        new TableCell({
+          children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })],
+          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
+        })
+      )
+    })
+  ];
+
+  // 1. ANOVA general info
+  anovaResult.table.forEach(row => {
+    if (row.source === 'Tratamentos' || row.source === 'Resíduo' || row.source === 'Total') return;
+    anovaRows.push(new TableRow({
+      children: [
+        new TableCell({ children: [new Paragraph(row.source)] }),
+        new TableCell({ children: [new Paragraph(String(row.df))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(row.ss))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(row.ms))] }),
+        new TableCell({ children: [new Paragraph(row.fValue !== null ? formatNumber(row.fValue) : '-')] }),
+        new TableCell({ children: [new Paragraph(row.pValue !== null ? formatNumber(row.pValue) + ' ' + row.significance : '-')] }),
+      ]
+    }));
+  });
+
+  // 2. Treatments broken down
+  anovaRows.push(new TableRow({
+    children: [
+      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Tratamentos (Total)", bold: true })] })] }),
+      new TableCell({ children: [new Paragraph(String(regressionResult.dfTreatments))] }),
+      new TableCell({ children: [new Paragraph(formatNumber(regressionResult.ssTreatments))] }),
+      new TableCell({ children: [new Paragraph(formatNumber(regressionResult.ssTreatments / regressionResult.dfTreatments))] }),
+      new TableCell({ children: [new Paragraph("-")] }),
+      new TableCell({ children: [new Paragraph("-")] }),
+    ]
+  }));
+
+  regressionResult.models.forEach(mod => {
+    anovaRows.push(new TableRow({
+      children: [
+        new TableCell({ children: [new Paragraph(`  Efeito ${mod.name}`)] }),
+        new TableCell({ children: [new Paragraph("1")] }),
+        new TableCell({ children: [new Paragraph(formatNumber(mod.ssSequential))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(mod.msSequential))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(mod.fSequential))] }),
+        new TableCell({ children: [new Paragraph(`${formatNumber(mod.pSequential)} ${mod.pSequential <= alpha ? '*' : 'ns'}`)] }),
+      ]
+    }));
+  });
+
+  if (regressionResult.models.length > 0) {
+    const maxMod = regressionResult.models[regressionResult.models.length - 1];
+    anovaRows.push(new TableRow({
+      children: [
+        new TableCell({ children: [new Paragraph("  Desvios da Regressão (Grau máx)")] }),
+        new TableCell({ children: [new Paragraph(String(maxMod.dfDeviations))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(maxMod.ssDeviations))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(maxMod.msDeviations))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(maxMod.fDeviations))] }),
+        new TableCell({ children: [new Paragraph(`${formatNumber(maxMod.pDeviations)} ${maxMod.pDeviations <= alpha ? '*' : 'ns'}`)] }),
+      ]
+    }));
+  }
+
+  anovaResult.table.forEach(row => {
+    if (row.source === 'Resíduo' || row.source === 'Total') {
+      anovaRows.push(new TableRow({
+        children: [
+          new TableCell({ children: [new Paragraph(row.source)] }),
+          new TableCell({ children: [new Paragraph(String(row.df))] }),
+          new TableCell({ children: [new Paragraph(formatNumber(row.ss))] }),
+          new TableCell({ children: [new Paragraph(formatNumber(row.ms))] }),
+          new TableCell({ children: [new Paragraph(row.fValue !== null ? formatNumber(row.fValue) : '-')] }),
+          new TableCell({ children: [new Paragraph(row.pValue !== null ? formatNumber(row.pValue) + ' ' + row.significance : '-')] }),
+        ]
+      }));
+    }
+  });
+
+  children.push(
+    new Paragraph({
+      children: [new TextRun({ text: "Quadro da Análise de Variância Ampliado", bold: true, size: 24 })],
+      spacing: { before: 400, after: 200 }
+    }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: anovaRows
+    })
+  );
+
+  const doc = new Document({
+    sections: [{ children }]
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const now = new Date();
+  downloadBlob(blob, `statium-regressao-${now.toISOString().slice(0, 10)}.docx`);
+}

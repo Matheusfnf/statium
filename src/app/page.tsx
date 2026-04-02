@@ -139,6 +139,14 @@ export default function Home() {
 
           <div className={styles.featuresGrid}>
             <div className={styles.featureCard}>
+              <div className={styles.featureIcon}>📈</div>
+              <h3 className={styles.featureTitle}>Regressão Polinomial</h3>
+              <p className={styles.featureDescription}>
+                Ajuste modelos de regressão para dados quantitativos de forma automática, validando o modelo exato para a sua curva.
+              </p>
+            </div>
+
+            <div className={styles.featureCard}>
               <div className={styles.featureIcon}>📐</div>
               <h3 className={styles.featureTitle}>ANOVA Completa</h3>
               <p className={styles.featureDescription}>

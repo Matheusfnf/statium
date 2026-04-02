@@ -20,8 +20,9 @@ export interface HistoryEntry {
   tukeyResult: TukeyResult | null;
   scottKnottResult: ScottKnottResult | null;
   dunnettResult: DunnettResult | null;
+  regressionResult?: any;
   controlTreatment: string;
-  comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett' | 'none';
+  comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett' | 'none' | 'regression';
   alpha: number;
 }
 
@@ -77,6 +78,7 @@ export function useAnalysisHistory() {
             tukeyResult: row.tukey_result as TukeyResult | null,
             scottKnottResult: row.scott_knott_result as ScottKnottResult | null,
             dunnettResult: row.dunnett_result as DunnettResult | null,
+            regressionResult: row.regression_result,
             controlTreatment: row.control_treatment || '',
             comparisonMethod: row.comparison_method as any,
             alpha: row.alpha,
@@ -104,8 +106,9 @@ export function useAnalysisHistory() {
       tukeyResult: TukeyResult | null;
       scottKnottResult: ScottKnottResult | null;
       dunnettResult: DunnettResult | null;
+      regressionResult?: any;
       controlTreatment: string;
-      comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett' | 'none';
+      comparisonMethod: 'tukey' | 'scott-knott' | 'dunnett' | 'none' | 'regression';
       alpha: number;
     }) => {
       if (!user) {
@@ -132,6 +135,7 @@ export function useAnalysisHistory() {
           tukey_result: params.tukeyResult,
           scott_knott_result: params.scottKnottResult,
           dunnett_result: params.dunnettResult,
+          regression_result: params.regressionResult,
           control_treatment: params.controlTreatment,
           comparison_method: params.comparisonMethod,
           alpha: params.alpha,
