@@ -314,6 +314,61 @@ export default function AnalysisPage() {
     exportCSV(anovaResult, tukeyResult, scottKnottResult, method, alpha, dunnettResult);
   }, [anovaResult, tukeyResult, scottKnottResult, dunnettResult, comparisonMethod, alpha]);
 
+  const interaction2DTable = useMemo(() => {
+    if (experimentType !== 'factorial') return null;
+    if (!anovaResult || !('factorialSignificance' in anovaResult)) return null;
+    const factAnova = anovaResult as any;
+    if (!factAnova.factorialSignificance.interaction) return null;
+
+    let res: any = null;
+    if (comparisonMethod === 'tukey') res = tukeyResult;
+    else if (comparisonMethod === 'scott-knott') res = scottKnottResult;
+    else return null;
+
+    if (!res || !res.unfoldingA || !res.unfoldingB) return null;
+
+    const levelsA = factAnova.factorA.names as string[];
+    const levelsB = factAnova.factorB.names as string[];
+
+    const matrix: any[][] = [];
+    levelsA.forEach((la) => {
+      const row: any[] = [];
+      levelsB.forEach((lb) => {
+        const idx = factAnova.treatmentNames.indexOf(`${la} | ${lb}`);
+        const mean = idx >= 0 ? factAnova.treatmentMeans[idx] : 0;
+
+        const unA = res.unfoldingA.find((u: any) => u.level === lb);
+        let lower = '';
+        if (unA) {
+          const g = unA.result.groups.find((x: any) => x.treatmentName === la);
+          if (g) lower = g.letter;
+        }
+
+        const unB = res.unfoldingB.find((u: any) => u.level === la);
+        let upper = '';
+        if (unB) {
+          const g = unB.result.groups.find((x: any) => x.treatmentName === lb);
+          if (g) upper = g.letter.toUpperCase();
+        }
+
+        row.push({ mean, lower, upper });
+      });
+      matrix.push(row);
+    });
+
+    const isTukey = comparisonMethod === 'tukey';
+    const dmsVal = alpha <= 0.01 ? res.dms01 : res.dms05;
+    const dmsText = isTukey ? `DMS (${alpha <= 0.01 ? '1%' : '5%'}) = ${dmsVal !== null ? formatNumber(dmsVal, 4) : 'Variável'}` : 'Grupos pelo algoritmo Scott-Knott';
+
+    return {
+      levelsA,
+      levelsB,
+      matrix,
+      dmsText,
+      title: `Desdobramento da Interação (${tidyDataFull?.mapping.factorA || 'Fator A'} x ${tidyDataFull?.mapping.factorB || 'Fator B'})`
+    };
+  }, [anovaResult, experimentType, comparisonMethod, tukeyResult, scottKnottResult, alpha, tidyDataFull]);
+
   const tablesToRender = useMemo(() => {
     const tables: { title: string; dmsText: React.ReactNode; dmsValueStr?: string; groups: any[] }[] = [];
     if (comparisonMethod === 'none') return tables;
@@ -342,7 +397,7 @@ export default function AnalysisPage() {
           dmsValueStr: getDmsVal(tukeyResult.mainB),
           groups: tukeyResult.mainB.groups
         });
-      } else {
+      } else if (!tukeyResult.unfoldingA) {
         tables.push({
           title: experimentType === 'simple' ? "Tratamentos" : "Interação (Fator A x Fator B)",
           dmsText: getDmsText(tukeyResult),
@@ -362,7 +417,7 @@ export default function AnalysisPage() {
           dmsText: `${scottKnottResult.mainB.numGroups} grupo(s) identificado(s)`,
           groups: scottKnottResult.mainB.groups
         });
-      } else {
+      } else if (!scottKnottResult.unfoldingA) {
         tables.push({
           title: experimentType === 'simple' ? "Tratamentos" : "Interação (Fator A x Fator B)",
           dmsText: `${scottKnottResult.numGroups} grupo(s) identificado(s)`,
@@ -390,13 +445,27 @@ export default function AnalysisPage() {
 
   const handleExportMeansWord = useCallback(() => {
     if (!anovaResult) return;
-    const tablesForExport = tablesToRender.map(t => ({
+    const tablesForExport: any[] = [];
+    
+    if (interaction2DTable) {
+      tablesForExport.push({
+        is2D: true,
+        title: interaction2DTable.title,
+        dmsValueStr: interaction2DTable.dmsText as string,
+        levelsA: interaction2DTable.levelsA,
+        levelsB: interaction2DTable.levelsB,
+        matrix: interaction2DTable.matrix
+      });
+    }
+
+    tablesForExport.push(...tablesToRender.map(t => ({
       title: t.title,
       dmsValueStr: t.dmsValueStr,
       groups: t.groups
-    }));
+    })));
+
     exportMeansWord(variableName, comparisonMethod, alpha, anovaResult.cv, tablesForExport);
-  }, [anovaResult, comparisonMethod, variableName, alpha, tablesToRender]);
+  }, [anovaResult, comparisonMethod, variableName, alpha, tablesToRender, interaction2DTable]);
 
   const handleExportAnovaWord = useCallback(() => {
     if (!anovaResult) return;
@@ -1248,7 +1317,7 @@ export default function AnalysisPage() {
             {/* Means Comparison Results (Conditional) */}
             {(comparisonMethod === 'tukey' || comparisonMethod === 'scott-knott' || comparisonMethod === 'dunnett') && (() => {
               
-              if (tablesToRender.length === 0) return null;
+              if (tablesToRender.length === 0 && !interaction2DTable) return null;
 
               return (
                 <div className={styles.card}>
@@ -1279,6 +1348,45 @@ export default function AnalysisPage() {
                       📝 Word (Artigo)
                     </button>
                   </div>
+
+                  {interaction2DTable && (
+                    <div style={{ marginBottom: '1.5rem', overflowX: 'auto' }}>
+                      <h3 style={{ fontSize: '1rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                        Efeito Principal: <strong>{interaction2DTable.title}</strong>
+                      </h3>
+                      <div className={styles.alphaSelect}>
+                        {comparisonMethod === 'tukey' ? (
+                          <>Teste de Tukey (HSD) — {interaction2DTable.dmsText}</>
+                        ) : (
+                          <>Teste de Scott-Knott — {interaction2DTable.dmsText}</>
+                        )}
+                      </div>
+                      <table className={styles.meansTable}>
+                        <thead>
+                          <tr>
+                            <th>{tidyDataFull?.mapping.factorA || 'Fator A'} \ {tidyDataFull?.mapping.factorB || 'Fator B'}</th>
+                            {interaction2DTable.levelsB.map(lb => (
+                              <th key={lb}>{lb}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {interaction2DTable.levelsA.map((la, rIdx) => (
+                            <tr key={la}>
+                              <td><strong>{la}</strong></td>
+                              {interaction2DTable.matrix[rIdx].map((cell: any, cIdx: number) => (
+                                <td key={cIdx} style={{ fontFamily: 'var(--font-mono)' }}>
+                                  {formatNumber(cell.mean, 4)}{' '}
+                                  <span className={styles.letterBadge} style={{ fontWeight: 'normal', backgroundColor: 'transparent', padding: 0 }}>{cell.lower}</span>
+                                  <span className={styles.letterBadge} style={{ fontWeight: 'normal', backgroundColor: 'transparent', padding: 0 }}>{cell.upper}</span>
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {tablesToRender.map((table, idx) => (
                     <div key={idx} style={{ marginBottom: idx < tablesToRender.length - 1 ? '1.5rem' : '0' }}>
@@ -1331,6 +1439,8 @@ export default function AnalysisPage() {
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: 'var(--space-sm)' }}>
                     {comparisonMethod === 'dunnett' ? 
                       '* = difere da testemunha (p < ' + alpha + '); ns = não significativo.'
+                    : interaction2DTable ?
+                      `Médias seguidas da mesma letra minúscula na coluna e maiúscula na linha não diferem entre si ao nível de ${alpha * 100}% de probabilidade pelo teste de ${comparisonMethod === 'tukey' ? 'Tukey' : 'Scott-Knott'}.`
                     :
                       `Médias seguidas da mesma letra não diferem entre si ao nível de ${alpha * 100}% de probabilidade.`
                     }

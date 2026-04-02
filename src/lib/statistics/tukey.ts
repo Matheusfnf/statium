@@ -17,6 +17,11 @@ export interface TukeyComparison {
   significant: boolean;
 }
 
+export interface TukeyUnfolding {
+  level: string;
+  result: TukeyResult;
+}
+
 export interface TukeyResult {
   dms05: number | null; // Null if unbalanced (Tukey-Kramer has multiple DMSs)
   dms01: number | null;
@@ -25,6 +30,8 @@ export interface TukeyResult {
   isFactorial?: boolean;
   mainA?: TukeyResult;
   mainB?: TukeyResult;
+  unfoldingA?: TukeyUnfolding[];
+  unfoldingB?: TukeyUnfolding[];
 }
 
 export interface TukeyGroup {
@@ -53,6 +60,48 @@ export function tukeyHSD(
       baseResult.isFactorial = true;
       baseResult.mainA = calculateTukey(factAnova.factorA.means, factAnova.factorA.counts, factAnova.factorA.names, mse, dfError, alpha);
       baseResult.mainB = calculateTukey(factAnova.factorB.means, factAnova.factorB.counts, factAnova.factorB.names, mse, dfError, alpha);
+    } else {
+      // Interação Significativa - Desdobramento
+      baseResult.isFactorial = true;
+      const unfoldingA: TukeyUnfolding[] = [];
+      const unfoldingB: TukeyUnfolding[] = [];
+
+      // A dentro de cada nível de B
+      factAnova.factorB.names.forEach(levelB => {
+        const subNames: string[] = [];
+        const subMeans: number[] = [];
+        const subCounts: number[] = [];
+        factAnova.treatmentNames.forEach((name, i) => {
+          const parts = name.split(' | ');
+          if (parts.length === 2 && parts[1] === levelB) {
+            subNames.push(parts[0]); // Nome do Fator A
+            subMeans.push(factAnova.treatmentMeans[i]);
+            subCounts.push(factAnova.treatmentCounts[i]);
+          }
+        });
+        const res = calculateTukey(subMeans, subCounts, subNames, mse, dfError, alpha);
+        unfoldingA.push({ level: levelB, result: res });
+      });
+
+      // B dentro de cada nível de A
+      factAnova.factorA.names.forEach(levelA => {
+        const subNames: string[] = [];
+        const subMeans: number[] = [];
+        const subCounts: number[] = [];
+        factAnova.treatmentNames.forEach((name, i) => {
+          const parts = name.split(' | ');
+          if (parts.length === 2 && parts[0] === levelA) {
+            subNames.push(parts[1]); // Nome do Fator B
+            subMeans.push(factAnova.treatmentMeans[i]);
+            subCounts.push(factAnova.treatmentCounts[i]);
+          }
+        });
+        const res = calculateTukey(subMeans, subCounts, subNames, mse, dfError, alpha);
+        unfoldingB.push({ level: levelA, result: res });
+      });
+
+      baseResult.unfoldingA = unfoldingA;
+      baseResult.unfoldingB = unfoldingB;
     }
   }
 

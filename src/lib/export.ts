@@ -314,7 +314,11 @@ export function exportCSV(
 export interface ExportMeansTable {
   title: string;
   dmsValueStr?: string;
-  groups: { treatmentName: string; mean: number; letter: string }[];
+  groups?: { treatmentName: string; mean: number; letter: string }[];
+  is2D?: boolean;
+  levelsA?: string[];
+  levelsB?: string[];
+  matrix?: { mean: number; lower: string; upper: string }[][];
 }
 
 export async function exportMeansWord(
@@ -329,114 +333,234 @@ export async function exportMeansWord(
   const methodName = comparisonMethod === 'tukey' ? 'Tukey' : comparisonMethod === 'scott-knott' ? 'Scott-Knott' : 'Dunnett';
   const alphaPercent = `${(alpha * 100).toFixed(0)}%`;
 
-  const sections: any[] = [];
+  const children: any[] = [];
 
   tablesToExport.forEach((tableData, index) => {
-    const tableRows = [
-      // Header Row (Double bordered top/bottom usually, but DOCX lacks double easily, so top/bottom single)
-      new TableRow({
-        children: [
-          new TableCell({
-            children: [
-              new Paragraph({
-                children: [
-                  new TextRun({ text: `${tableData.title}`, bold: true }),
-                  new TextRun({ text: '1', bold: true, superScript: true }),
-                ],
-              }),
-            ],
-            width: { size: 4000, type: WidthType.DXA },
-            borders: {
-              top: { style: BorderStyle.SINGLE, size: 1 },
-              bottom: { style: BorderStyle.SINGLE, size: 1 },
-              left: { style: BorderStyle.NONE },
-              right: { style: BorderStyle.NONE },
-            },
-          }),
-          new TableCell({
-            children: [new Paragraph({ children: [new TextRun({ text: variableName, bold: true })] })],
-            width: { size: 4000, type: WidthType.DXA },
-            borders: {
-              top: { style: BorderStyle.SINGLE, size: 1 },
-              bottom: { style: BorderStyle.SINGLE, size: 1 },
-              left: { style: BorderStyle.NONE },
-              right: { style: BorderStyle.NONE },
-            },
-          }),
-        ],
-      }),
-      // Data Rows
-      ...tableData.groups.map((g) => new TableRow({
-        children: [
-          new TableCell({
-            children: [new Paragraph(g.treatmentName)],
-            borders: {
-              top: { style: BorderStyle.NONE },
-              bottom: { style: BorderStyle.NONE },
-              left: { style: BorderStyle.NONE },
-              right: { style: BorderStyle.NONE },
-            },
-          }),
-          new TableCell({
-            children: [new Paragraph(`${formatNumber(g.mean, 2)} ${g.letter}`)],
-            borders: {
-              top: { style: BorderStyle.NONE },
-              bottom: { style: BorderStyle.NONE },
-              left: { style: BorderStyle.NONE },
-              right: { style: BorderStyle.NONE },
-            },
-          }),
-        ],
-      })),
-      // DMS Row (only for Tukey)
-      ...(comparisonMethod === 'tukey' && tableData.dmsValueStr ? [
+    let tableRows: TableRow[] = [];
+    // ... the tableRows code is still valid but it's huge, I need to wrap just the section push! 
+
+    if (tableData.is2D && tableData.levelsA && tableData.levelsB && tableData.matrix) {
+      // 2D Matrix Table Logic
+      tableRows = [
+        // Header Row (Title)
         new TableRow({
           children: [
             new TableCell({
-              children: [new Paragraph('DMS')],
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: `${tableData.title}`, bold: true }),
+                    new TextRun({ text: '1', bold: true, superScript: true }),
+                  ],
+                }),
+              ],
+              columnSpan: tableData.levelsB.length + 1,
+              width: { size: 6000, type: WidthType.DXA },
               borders: {
                 top: { style: BorderStyle.SINGLE, size: 1 },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            })
+          ],
+        }),
+        // Column Headers (Factor B levels)
+        new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: variableName, bold: true })] })],
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1 },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+            ...tableData.levelsB.map(lb => new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: lb, bold: true })] })],
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1 },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }))
+          ],
+        }),
+        // Data Rows
+        ...tableData.levelsA.map((la, rIdx) => new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: la, bold: true })] })],
+              borders: {
+                top: { style: BorderStyle.NONE },
+                bottom: { style: BorderStyle.NONE },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+            ...tableData.matrix![rIdx].map(cell => new TableCell({
+              children: [new Paragraph(`${formatNumber(cell.mean, 2)} ${cell.lower}${cell.upper}`)],
+              borders: {
+                top: { style: BorderStyle.NONE },
+                bottom: { style: BorderStyle.NONE },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }))
+          ],
+        })),
+        // DMS Row (if available)
+        ...(comparisonMethod === 'tukey' && tableData.dmsValueStr ? [
+          new TableRow({
+            children: [
+              new TableCell({
+                children: [new Paragraph(tableData.dmsValueStr)],
+                columnSpan: tableData.levelsB.length + 1,
+                borders: {
+                  top: { style: BorderStyle.SINGLE, size: 1 },
+                  bottom: { style: BorderStyle.NONE },
+                  left: { style: BorderStyle.NONE },
+                  right: { style: BorderStyle.NONE },
+                },
+              }),
+            ],
+          })
+        ] : []),
+        // CV Row
+        new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph('CV (%)')],
+              borders: {
+                top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+            new TableCell({
+              children: [new Paragraph(formatNumber(cv, 2))],
+              columnSpan: tableData.levelsB.length,
+              borders: {
+                top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+          ],
+        }),
+      ];
+    } else if (tableData.groups) {
+      // Regular 1D Table Logic
+      tableRows = [
+        // Header Row
+        new TableRow({
+          children: [
+            new TableCell({
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: `${tableData.title}`, bold: true }),
+                    new TextRun({ text: '1', bold: true, superScript: true }),
+                  ],
+                }),
+              ],
+              width: { size: 4000, type: WidthType.DXA },
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1 },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: variableName, bold: true })] })],
+              width: { size: 4000, type: WidthType.DXA },
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1 },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+          ],
+        }),
+        // Data Rows
+        ...tableData.groups.map((g) => new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph(g.treatmentName)],
+              borders: {
+                top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },
                 left: { style: BorderStyle.NONE },
                 right: { style: BorderStyle.NONE },
               },
             }),
             new TableCell({
-              children: [new Paragraph(tableData.dmsValueStr)],
+              children: [new Paragraph(`${formatNumber(g.mean, 2)} ${g.letter}`)],
               borders: {
-                top: { style: BorderStyle.SINGLE, size: 1 },
+                top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },
                 left: { style: BorderStyle.NONE },
                 right: { style: BorderStyle.NONE },
               },
             }),
           ],
-        })
-      ] : []),
-      // CV Row
-      new TableRow({
-        children: [
-          new TableCell({
-            children: [new Paragraph('CV (%)')],
-            borders: {
-              top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
-              bottom: { style: BorderStyle.SINGLE, size: 1 },
-              left: { style: BorderStyle.NONE },
-              right: { style: BorderStyle.NONE },
-            },
-          }),
-          new TableCell({
-            children: [new Paragraph(formatNumber(cv, 2))],
-            borders: {
-              top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
-              bottom: { style: BorderStyle.SINGLE, size: 1 },
-              left: { style: BorderStyle.NONE },
-              right: { style: BorderStyle.NONE },
-            },
-          }),
-        ],
-      }),
-    ];
+        })),
+        // DMS Row (only for Tukey)
+        ...(comparisonMethod === 'tukey' && tableData.dmsValueStr ? [
+          new TableRow({
+            children: [
+              new TableCell({
+                children: [new Paragraph('DMS')],
+                borders: {
+                  top: { style: BorderStyle.SINGLE, size: 1 },
+                  bottom: { style: BorderStyle.NONE },
+                  left: { style: BorderStyle.NONE },
+                  right: { style: BorderStyle.NONE },
+                },
+              }),
+              new TableCell({
+                children: [new Paragraph(tableData.dmsValueStr)],
+                borders: {
+                  top: { style: BorderStyle.SINGLE, size: 1 },
+                  bottom: { style: BorderStyle.NONE },
+                  left: { style: BorderStyle.NONE },
+                  right: { style: BorderStyle.NONE },
+                },
+              }),
+            ],
+          })
+        ] : []),
+        // CV Row
+        new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph('CV (%)')],
+              borders: {
+                top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+            new TableCell({
+              children: [new Paragraph(formatNumber(cv, 2))],
+              borders: {
+                top: comparisonMethod !== 'tukey' ? { style: BorderStyle.SINGLE, size: 1 } : { style: BorderStyle.NONE },
+                bottom: { style: BorderStyle.SINGLE, size: 1 },
+                left: { style: BorderStyle.NONE },
+                right: { style: BorderStyle.NONE },
+              },
+            }),
+          ],
+        }),
+      ];
+    }
 
     const table = new Table({
       rows: tableRows,
@@ -451,32 +575,32 @@ export async function exportMeansWord(
       },
     });
 
-    sections.push({
-      children: [
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `Tabela ${index + 1}: Médias de ${variableName} em função de ${tableData.title}.`,
-              bold: true,
-            }),
-          ],
-          spacing: { after: 200 },
-        }),
-        table,
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `¹Médias seguidas por letras distintas diferem entre si pelo Teste de ${methodName} a ${alphaPercent} de significância.`,
-              size: 18, // ~9pt
-            }),
-          ],
-          spacing: { before: 200 },
-        }),
-      ],
-    });
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Tabela ${index + 1}: Médias de ${variableName} em função de ${tableData.title}.`,
+            bold: true,
+          }),
+        ],
+        spacing: { after: 200, before: index > 0 ? 400 : 0 },
+      }),
+      table,
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: tableData.is2D 
+              ? `¹Médias seguidas de mesma letra minúscula na coluna e mesma letra maiúscula na linha não diferem entre si pelo Teste de ${methodName} a ${alphaPercent} de significância.`
+              : `¹Médias seguidas por letras distintas diferem entre si pelo Teste de ${methodName} a ${alphaPercent} de significância.`,
+            size: 18, // ~9pt
+          }),
+        ],
+        spacing: { before: 200 },
+      })
+    );
   });
 
-  const doc = new Document({ sections });
+  const doc = new Document({ sections: [{ children }] });
   const blob = await Packer.toBlob(doc);
   downloadBlob(blob, `tabelas-medias-artigo-${new Date().toISOString().slice(0, 10)}.docx`);
 }

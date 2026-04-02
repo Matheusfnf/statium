@@ -107,16 +107,6 @@ export function anovaFatorialDuplo(
 
   const table: AnovaRow[] = [];
   
-  if (design === 'DBC') {
-    table.push({
-      source: 'Bloco', df: df_Block, ss: SSBlock, ms: MSBlock,
-      fValue: FBlock, pValue: pBlock,
-      fCritical05: df_Block > 0 && df_Error > 0 ? fCritical(0.05, df_Block, df_Error) : null,
-      fCritical01: df_Block > 0 && df_Error > 0 ? fCritical(0.01, df_Block, df_Error) : null,
-      significance: getSignificance(pBlock, alpha)
-    });
-  }
-  
   table.push({
     source: 'Fator A', df: df_A, ss: SSA, ms: MSA,
     fValue: FA, pValue: pA,
@@ -138,6 +128,16 @@ export function anovaFatorialDuplo(
     fCritical01: df_AB > 0 && df_Error > 0 ? fCritical(0.01, df_AB, df_Error) : null,
     significance: getSignificance(pAB, alpha)
   });
+
+  if (design === 'DBC') {
+    table.push({
+      source: 'Bloco', df: df_Block, ss: SSBlock, ms: MSBlock,
+      fValue: FBlock, pValue: pBlock,
+      fCritical05: df_Block > 0 && df_Error > 0 ? fCritical(0.05, df_Block, df_Error) : null,
+      fCritical01: df_Block > 0 && df_Error > 0 ? fCritical(0.01, df_Block, df_Error) : null,
+      significance: getSignificance(pBlock, alpha)
+    });
+  }
   table.push({
     source: 'Resíduo', df: df_Error, ss: SSE, ms: MSE,
     fValue: null, pValue: null, fCritical05: null, fCritical01: null, significance: ''

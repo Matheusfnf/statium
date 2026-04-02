@@ -16,12 +16,19 @@ export interface ScottKnottGroup {
   letter: string;
 }
 
+export interface ScottKnottUnfolding {
+  level: string;
+  result: ScottKnottResult;
+}
+
 export interface ScottKnottResult {
   groups: ScottKnottGroup[];
   numGroups: number;
   isFactorial?: boolean;
   mainA?: ScottKnottResult;
   mainB?: ScottKnottResult;
+  unfoldingA?: ScottKnottUnfolding[];
+  unfoldingB?: ScottKnottUnfolding[];
 }
 
 /**
@@ -45,6 +52,48 @@ export function scottKnott(
       baseResult.isFactorial = true;
       baseResult.mainA = calculateScottKnott(factAnova.factorA.means, factAnova.factorA.counts, factAnova.factorA.names, mse, dfError, alpha);
       baseResult.mainB = calculateScottKnott(factAnova.factorB.means, factAnova.factorB.counts, factAnova.factorB.names, mse, dfError, alpha);
+    } else {
+      // Interação Significativa - Desdobramento
+      baseResult.isFactorial = true;
+      const unfoldingA: ScottKnottUnfolding[] = [];
+      const unfoldingB: ScottKnottUnfolding[] = [];
+
+      // A dentro de cada nível de B
+      factAnova.factorB.names.forEach(levelB => {
+        const subNames: string[] = [];
+        const subMeans: number[] = [];
+        const subCounts: number[] = [];
+        factAnova.treatmentNames.forEach((name, i) => {
+          const parts = name.split(' | ');
+          if (parts.length === 2 && parts[1] === levelB) {
+            subNames.push(parts[0]);
+            subMeans.push(factAnova.treatmentMeans[i]);
+            subCounts.push(factAnova.treatmentCounts[i]);
+          }
+        });
+        const res = calculateScottKnott(subMeans, subCounts, subNames, mse, dfError, alpha);
+        unfoldingA.push({ level: levelB, result: res });
+      });
+
+      // B dentro de cada nível de A
+      factAnova.factorA.names.forEach(levelA => {
+        const subNames: string[] = [];
+        const subMeans: number[] = [];
+        const subCounts: number[] = [];
+        factAnova.treatmentNames.forEach((name, i) => {
+          const parts = name.split(' | ');
+          if (parts.length === 2 && parts[0] === levelA) {
+            subNames.push(parts[1]);
+            subMeans.push(factAnova.treatmentMeans[i]);
+            subCounts.push(factAnova.treatmentCounts[i]);
+          }
+        });
+        const res = calculateScottKnott(subMeans, subCounts, subNames, mse, dfError, alpha);
+        unfoldingB.push({ level: levelA, result: res });
+      });
+
+      baseResult.unfoldingA = unfoldingA;
+      baseResult.unfoldingB = unfoldingB;
     }
   }
 
