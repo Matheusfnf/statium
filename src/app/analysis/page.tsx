@@ -543,7 +543,7 @@ export default function AnalysisPage() {
       setScottKnottResult(entry.scottKnottResult);
       setDunnettResult(entry.dunnettResult || null);
       setControlTreatment(entry.controlTreatment || '');
-      setComparisonMethod(entry.comparisonMethod);
+      setComparisonMethod(entry.comparisonMethod === 'regression' ? 'none' : entry.comparisonMethod);
       setAlpha(entry.alpha ?? 0.05);
 
       const isFactorial = entry.experimentType === 'factorial' || (entry.anovaResult && 'factorialSignificance' in entry.anovaResult);
