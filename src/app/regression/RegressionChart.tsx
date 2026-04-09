@@ -14,7 +14,15 @@ import {
   LineController
 } from 'chart.js';
 import { Chart } from 'react-chartjs-2';
-import type { PolynomialModel } from '@/lib/statistics/regression';
+import { RegressionResult } from '@/lib/statistics/regression';
+
+const COLORS = [
+  { line: '#10b981', point: '#34d399', bg: 'rgba(16, 185, 129, 0.2)' }, // Emerald
+  { line: '#3b82f6', point: '#60a5fa', bg: 'rgba(59, 130, 246, 0.2)' }, // Blue
+  { line: '#f43f5e', point: '#fb7185', bg: 'rgba(244, 63, 94, 0.2)' },  // Rose
+  { line: '#8b5cf6', point: '#a78bfa', bg: 'rgba(139, 92, 246, 0.2)' }, // Violet
+  { line: '#f59e0b', point: '#fbbf24', bg: 'rgba(245, 158, 11, 0.2)' }  // Amber
+];
 
 ChartJS.register(
   CategoryScale,
@@ -29,75 +37,94 @@ ChartJS.register(
 );
 
 interface RegressionChartProps {
-  xValues: number[];
-  observedMeans: number[];
-  model: PolynomialModel;
+  results: RegressionResult[];
   variableName: string;
 }
 
 const RegressionChart = forwardRef<unknown, RegressionChartProps>(
-  ({ xValues, observedMeans, model, variableName }, ref) => {
+  ({ results, variableName }, ref) => {
     
-    // Create finely sampled points for the curve
-    const minX = Math.min(...xValues);
-    const maxX = Math.max(...xValues);
-    const padding = (maxX - minX) * 0.05;
+    // Find absolute min/max across all results
+    let globalMinX = Infinity;
+    let globalMaxX = -Infinity;
     
-    const startX = minX - padding;
-    const endX = maxX + padding;
-    const steps = 50;
+    results.forEach(res => {
+      const minX = Math.min(...res.xValues);
+      const maxX = Math.max(...res.xValues);
+      if (minX < globalMinX) globalMinX = minX;
+      if (maxX > globalMaxX) globalMaxX = maxX;
+    });
+
+    const padding = (globalMaxX - globalMinX) * 0.05;
+    const startX = globalMinX - padding;
+    const endX = globalMaxX + padding;
+    const steps = 100;
     const stepSize = (endX - startX) / steps;
     
-    const curvePoints = [];
-    for (let i = 0; i <= steps; i++) {
-        const x = startX + i * stepSize;
-        let y = 0;
-        for (let j = 0; j <= model.degree; j++) {
+    const datasets: any[] = [];
+
+    results.forEach((res, index) => {
+      const color = COLORS[index % COLORS.length];
+      const labelPrefix = res.levelName && res.levelName !== 'Geral' ? `${res.levelName}: ` : '';
+
+      // Always show observed scatter points
+      const scatterPoints = res.xValues.map((x, i) => ({ x, y: res.observedMeans[i] }));
+      datasets.push({
+        type: 'scatter' as const,
+        label: `${labelPrefix}Médias Observadas`,
+        data: scatterPoints,
+        backgroundColor: color.point,
+        borderColor: color.line,
+        borderWidth: 2,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+        order: 1
+      });
+
+      // Only plot fitted curve when there is a significant model
+      if (res.bestModelIndex >= 0) {
+        const model = res.models[res.bestModelIndex];
+        const curvePoints = [];
+        for (let i = 0; i <= steps; i++) {
+          const x = startX + i * stepSize;
+          let y = 0;
+          for (let j = 0; j <= model.degree; j++) {
             y += model.coefficients[j] * Math.pow(x, j);
+          }
+          curvePoints.push({ x, y });
         }
-        curvePoints.push({ x, y });
-    }
-
-    const scatterPoints = xValues.map((x, i) => ({ x, y: observedMeans[i] }));
-
-    const chartData = {
-      datasets: [
-        {
-          type: 'scatter' as const,
-          label: 'Médias Observadas',
-          data: scatterPoints,
-          backgroundColor: '#fbbf24', // Yellowish point
-          borderColor: '#d97706',
-          borderWidth: 2,
-          pointRadius: 6,
-          pointHoverRadius: 8,
-          order: 1
-        },
-        {
+        datasets.push({
           type: 'line' as const,
-          label: `Curva Ajustada (${model.name})`,
+          label: `${labelPrefix}Curva Ajustada (${model.name})`,
           data: curvePoints,
-          borderColor: '#10b981', // Emerald green line
+          borderColor: color.line,
           backgroundColor: 'transparent',
           borderWidth: 3,
           pointRadius: 0,
           pointHoverRadius: 0,
-          tension: 0.4, // smooth curve
+          tension: 0,
           order: 2
-        }
-      ]
-    };
+        });
+      }
+    });
+
+    const chartData = { datasets };
 
     const options = {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: 'nearest' as const,
+        intersect: false,
+      },
       plugins: {
         legend: {
           display: true,
           position: 'top' as const,
           labels: {
             color: '#e2e8f0',
-            font: { family: 'Inter', size: 14 }
+            font: { family: 'Inter', size: 14 },
+            usePointStyle: true,
           }
         },
         tooltip: {

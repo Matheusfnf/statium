@@ -928,11 +928,11 @@ export async function exportLayoutDocx(layout: { id: number; treatment: string; 
 }
 
 import type { RegressionResult } from '@/lib/statistics/regression';
-
+import type { FactorialAnovaResult } from '@/lib/statistics/factorialAnova';
 export async function exportRegressionWord(
   variableName: string,
-  anovaResult: AnovaResult,
-  regressionResult: RegressionResult,
+  anovaResult: AnovaResult | FactorialAnovaResult,
+  regressionResults: RegressionResult[],
   alpha: number
 ) {
   const children: any[] = [];
@@ -959,129 +959,143 @@ export async function exportRegressionWord(
     })
   );
 
-  // Model Summary
-  const modelRows = [
-    new TableRow({
-      children: ['Grau', 'Eq. Ajustada', 'R²', 'P-Valor (Seq)', 'P-Valor (Desvios)'].map(header => 
-        new TableCell({
-          children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })],
-          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
-        })
-      )
-    }),
-    ...regressionResult.models.map((mod, k) => new TableRow({
-      children: [
-        new TableCell({ children: [new Paragraph(mod.name + (k === regressionResult.bestModelIndex ? ' (Melhor Modelo)' : ''))] }),
-        new TableCell({ children: [new Paragraph(mod.equation)] }),
-        new TableCell({ children: [new Paragraph(`${(mod.r2 * 100).toFixed(2)}%`)] }),
-        new TableCell({ children: [new Paragraph(`${formatNumber(mod.pSequential)} ${mod.pSequential <= alpha ? '*' : 'ns'}`)] }),
-        new TableCell({ children: [new Paragraph(`${formatNumber(mod.pDeviations)} ${mod.pDeviations > alpha ? 'ns' : '*'}`)] }),
-      ]
-    }))
-  ];
+  regressionResults.forEach((regressionResult, index) => {
+    const isFirst = index === 0;
+    const titleContext = regressionResult.levelName ? ` (Nível: ${regressionResult.levelName})` : '';
 
-  children.push(
-    new Paragraph({
-      children: [new TextRun({ text: "Ajustes do Modelo", bold: true, size: 24 })],
-      spacing: { before: 400, after: 200 }
-    }),
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: modelRows
-    })
-  );
+    // Model Summary
+    const modelRows = [
+      new TableRow({
+        children: ['Grau', 'Eq. Ajustada', 'R²', 'P-Valor (Seq)', 'P-Valor (Desvios)'].map(header => 
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })],
+            shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
+          })
+        )
+      }),
+      ...regressionResult.models.map((mod, k) => new TableRow({
+        children: [
+          new TableCell({ children: [new Paragraph(mod.name + (k === regressionResult.bestModelIndex ? ' (Melhor Modelo)' : ''))] }),
+          new TableCell({ children: [new Paragraph(mod.equation)] }),
+          new TableCell({ children: [new Paragraph(`${(mod.r2 * 100).toFixed(2)}%`)] }),
+          new TableCell({ children: [new Paragraph(`${formatNumber(mod.pSequential)} ${mod.pSequential <= alpha ? '*' : 'ns'}`)] }),
+          new TableCell({ children: [new Paragraph(`${formatNumber(mod.pDeviations)} ${mod.pDeviations > alpha ? 'ns' : '*'}`)] }),
+        ]
+      }))
+    ];
 
-  // ANOVA Table
-  const anovaRows = [
-    new TableRow({
-      children: ['Fonte de Variação', 'GL', 'SQ', 'QM', 'F calc', 'p-valor'].map(header => 
-        new TableCell({
-          children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })],
-          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
-        })
-      )
-    })
-  ];
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: `Ajustes do Modelo${titleContext}`, bold: true, size: 24 })],
+        spacing: { before: 400, after: 200 }
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: modelRows
+      })
+    );
 
-  // 1. ANOVA general info
-  anovaResult.table.forEach(row => {
-    if (row.source === 'Tratamentos' || row.source === 'Resíduo' || row.source === 'Total') return;
+    // ANOVA Table
+    const anovaRows = [
+      new TableRow({
+        children: ['Fonte de Variação', 'GL', 'SQ', 'QM', 'F calc', 'p-valor'].map(header => 
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: header, bold: true })] })],
+            shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
+          })
+        )
+      })
+    ];
+
+    // 1. ANOVA general info (only print main table structure once if it's simple, but we do it per item basically if Factorial? 
+    // Let's print the base ANOVA table once)
+    if (isFirst) {
+      if ('table' in anovaResult) {
+        (anovaResult as any).table.forEach((row: any) => {
+          if (row.source === 'Tratamentos' || row.source === 'Resíduo' || row.source === 'Total') return;
+          anovaRows.push(new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph(row.source)] }),
+              new TableCell({ children: [new Paragraph(String(row.df))] }),
+              new TableCell({ children: [new Paragraph(formatNumber(row.ss))] }),
+              new TableCell({ children: [new Paragraph(formatNumber(row.ms))] }),
+              new TableCell({ children: [new Paragraph(row.fValue !== null ? formatNumber(row.fValue) : '-')] }),
+              new TableCell({ children: [new Paragraph(row.pValue !== null ? formatNumber(row.pValue) + ' ' + row.significance : '-')] }),
+            ]
+          }));
+        });
+      }
+    }
+
+    // 2. Treatments broken down for this regression result
     anovaRows.push(new TableRow({
       children: [
-        new TableCell({ children: [new Paragraph(row.source)] }),
-        new TableCell({ children: [new Paragraph(String(row.df))] }),
-        new TableCell({ children: [new Paragraph(formatNumber(row.ss))] }),
-        new TableCell({ children: [new Paragraph(formatNumber(row.ms))] }),
-        new TableCell({ children: [new Paragraph(row.fValue !== null ? formatNumber(row.fValue) : '-')] }),
-        new TableCell({ children: [new Paragraph(row.pValue !== null ? formatNumber(row.pValue) + ' ' + row.significance : '-')] }),
+        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `Tratamentos (Total${titleContext})`, bold: true })] })] }),
+        new TableCell({ children: [new Paragraph(String(regressionResult.dfTreatments))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(regressionResult.ssTreatments))] }),
+        new TableCell({ children: [new Paragraph(formatNumber(regressionResult.ssTreatments / regressionResult.dfTreatments))] }),
+        new TableCell({ children: [new Paragraph("-")] }),
+        new TableCell({ children: [new Paragraph("-")] }),
       ]
     }));
-  });
 
-  // 2. Treatments broken down
-  anovaRows.push(new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Tratamentos (Total)", bold: true })] })] }),
-      new TableCell({ children: [new Paragraph(String(regressionResult.dfTreatments))] }),
-      new TableCell({ children: [new Paragraph(formatNumber(regressionResult.ssTreatments))] }),
-      new TableCell({ children: [new Paragraph(formatNumber(regressionResult.ssTreatments / regressionResult.dfTreatments))] }),
-      new TableCell({ children: [new Paragraph("-")] }),
-      new TableCell({ children: [new Paragraph("-")] }),
-    ]
-  }));
-
-  regressionResult.models.forEach(mod => {
-    anovaRows.push(new TableRow({
-      children: [
-        new TableCell({ children: [new Paragraph(`  Efeito ${mod.name}`)] }),
-        new TableCell({ children: [new Paragraph("1")] }),
-        new TableCell({ children: [new Paragraph(formatNumber(mod.ssSequential))] }),
-        new TableCell({ children: [new Paragraph(formatNumber(mod.msSequential))] }),
-        new TableCell({ children: [new Paragraph(formatNumber(mod.fSequential))] }),
-        new TableCell({ children: [new Paragraph(`${formatNumber(mod.pSequential)} ${mod.pSequential <= alpha ? '*' : 'ns'}`)] }),
-      ]
-    }));
-  });
-
-  if (regressionResult.models.length > 0) {
-    const maxMod = regressionResult.models[regressionResult.models.length - 1];
-    anovaRows.push(new TableRow({
-      children: [
-        new TableCell({ children: [new Paragraph("  Desvios da Regressão (Grau máx)")] }),
-        new TableCell({ children: [new Paragraph(String(maxMod.dfDeviations))] }),
-        new TableCell({ children: [new Paragraph(formatNumber(maxMod.ssDeviations))] }),
-        new TableCell({ children: [new Paragraph(formatNumber(maxMod.msDeviations))] }),
-        new TableCell({ children: [new Paragraph(formatNumber(maxMod.fDeviations))] }),
-        new TableCell({ children: [new Paragraph(`${formatNumber(maxMod.pDeviations)} ${maxMod.pDeviations <= alpha ? '*' : 'ns'}`)] }),
-      ]
-    }));
-  }
-
-  anovaResult.table.forEach(row => {
-    if (row.source === 'Resíduo' || row.source === 'Total') {
+    regressionResult.models.forEach(mod => {
       anovaRows.push(new TableRow({
         children: [
-          new TableCell({ children: [new Paragraph(row.source)] }),
-          new TableCell({ children: [new Paragraph(String(row.df))] }),
-          new TableCell({ children: [new Paragraph(formatNumber(row.ss))] }),
-          new TableCell({ children: [new Paragraph(formatNumber(row.ms))] }),
-          new TableCell({ children: [new Paragraph(row.fValue !== null ? formatNumber(row.fValue) : '-')] }),
-          new TableCell({ children: [new Paragraph(row.pValue !== null ? formatNumber(row.pValue) + ' ' + row.significance : '-')] }),
+          new TableCell({ children: [new Paragraph(`  Efeito ${mod.name}`)] }),
+          new TableCell({ children: [new Paragraph("1")] }),
+          new TableCell({ children: [new Paragraph(formatNumber(mod.ssSequential))] }),
+          new TableCell({ children: [new Paragraph(formatNumber(mod.msSequential))] }),
+          new TableCell({ children: [new Paragraph(formatNumber(mod.fSequential))] }),
+          new TableCell({ children: [new Paragraph(`${formatNumber(mod.pSequential)} ${mod.pSequential <= alpha ? '*' : 'ns'}`)] }),
+        ]
+      }));
+    });
+
+    if (regressionResult.models.length > 0) {
+      const maxMod = regressionResult.models[regressionResult.models.length - 1];
+      anovaRows.push(new TableRow({
+        children: [
+          new TableCell({ children: [new Paragraph("  Desvios da Regressão (Grau máx)")] }),
+          new TableCell({ children: [new Paragraph(String(maxMod.dfDeviations))] }),
+          new TableCell({ children: [new Paragraph(formatNumber(maxMod.ssDeviations))] }),
+          new TableCell({ children: [new Paragraph(formatNumber(maxMod.msDeviations))] }),
+          new TableCell({ children: [new Paragraph(formatNumber(maxMod.fDeviations))] }),
+          new TableCell({ children: [new Paragraph(`${formatNumber(maxMod.pDeviations)} ${maxMod.pDeviations <= alpha ? '*' : 'ns'}`)] }),
         ]
       }));
     }
-  });
 
-  children.push(
-    new Paragraph({
-      children: [new TextRun({ text: "Quadro da Análise de Variância Ampliado", bold: true, size: 24 })],
-      spacing: { before: 400, after: 200 }
-    }),
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: anovaRows
-    })
-  );
+    if (isFirst) {
+      if ('table' in anovaResult) {
+        (anovaResult as any).table.forEach((row: any) => {
+          if (row.source === 'Resíduo' || row.source === 'Total') {
+            anovaRows.push(new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph(row.source)] }),
+                new TableCell({ children: [new Paragraph(String(row.df))] }),
+                new TableCell({ children: [new Paragraph(formatNumber(row.ss))] }),
+                new TableCell({ children: [new Paragraph(formatNumber(row.ms))] }),
+                new TableCell({ children: [new Paragraph(row.fValue !== null ? formatNumber(row.fValue) : '-')] }),
+                new TableCell({ children: [new Paragraph(row.pValue !== null ? formatNumber(row.pValue) + ' ' + row.significance : '-')] }),
+              ]
+            }));
+          }
+        });
+      }
+    }
+
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: `Quadro da Análise de Variância Ampliado${titleContext}`, bold: true, size: 24 })],
+        spacing: { before: 400, after: 200 }
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: anovaRows
+      })
+    );
+  });
 
   const doc = new Document({
     sections: [{ children }]
