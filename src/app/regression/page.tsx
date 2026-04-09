@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   anovaDIC,
@@ -25,7 +25,7 @@ const STEPS = [
   { label: 'Resultados', icon: '📋' },
 ];
 
-export default function RegressionPage() {
+function RegressionPageContent() {
   const [currentStep, setCurrentStep] = useState(0);
 
   // Setup state
@@ -801,5 +801,23 @@ export default function RegressionPage() {
         )}
       </div>
     </>
+  );
+}
+
+export default function RegressionPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        color: 'var(--text-secondary)'
+      }}>
+        Carregando...
+      </div>
+    }>
+      <RegressionPageContent />
+    </Suspense>
   );
 }
