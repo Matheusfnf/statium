@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   anovaDIC,
   anovaDBC,
@@ -60,6 +61,8 @@ export default function RegressionPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showSavedToast, setShowSavedToast] = useState(false);
   const history = useAnalysisHistory();
+  const searchParams = useSearchParams();
+  const loadedFromUrlRef = useRef(false);
 
   const parsedData = useMemo(() => {
     return gridData.map((row) => ({
@@ -350,40 +353,65 @@ export default function RegressionPage() {
       setVariableName(entry.variableName || '');
       setNumTreatments(entry.numTreatments);
       setNumReps(entry.numReps);
-      
-      if (entry.experimentType === 'factorial') {
-         setHasQualiFactor(true);
-      } else {
-         setHasQualiFactor(false);
-      }
-      
+
+      const isFact = entry.experimentType === 'factorial';
+      setHasQualiFactor(isFact);
+
+      // Restore grid data
       if (entry.tidyDataFull && Array.isArray(entry.tidyDataFull)) {
-         setGridData(entry.tidyDataFull);
-      } else {
-         // minimal restore
-         const gData: GridRow[] = [];
-         if (entry.data && Array.isArray(entry.data)) {
-            entry.data.forEach((rowArr, i) => {
-               gData.push({ dose: entry.treatmentNames[i] || '', level: '', reps: rowArr.map(v => String(v)) });
-            });
-         }
-         setGridData(gData);
+        const gd = entry.tidyDataFull as GridRow[];
+        setGridData(gd);
+
+        // Restore quali level names from grid data if factorial
+        if (isFact) {
+          const uniqueLevels = Array.from(new Set(gd.map((r: GridRow) => r.level).filter(Boolean)));
+          if (uniqueLevels.length > 0) setLevelNames(uniqueLevels as string[]);
+        }
+      } else if (entry.data && Array.isArray(entry.data)) {
+        const gData: GridRow[] = (entry.data as string[][]).map((rowArr, i) => ({
+          dose: entry.treatmentNames[i] || '',
+          level: '',
+          reps: rowArr.map((v) => String(v))
+        }));
+        setGridData(gData);
       }
 
-      setAnovaResult(entry.anovaResult);
+      // Restore results if valid and jump to results screen
       if (entry.regressionResult) {
-         setRegressionResults(Array.isArray(entry.regressionResult) ? entry.regressionResult : [entry.regressionResult]);
+        const resultsArr = Array.isArray(entry.regressionResult)
+          ? entry.regressionResult
+          : [entry.regressionResult];
+        setRegressionResults(resultsArr as RegressionResult[]);
+        setAnovaResult(entry.anovaResult);
+        setCurrentStep(2);
       } else {
-         setRegressionResults(null);
+        // No results saved — go to data grid so user can recalculate quickly
+        setAnovaResult(entry.anovaResult);
+        setRegressionResults(null);
+        setCurrentStep(1);
       }
 
-      setCurrentStep(2);
       setHistoryOpen(false);
     },
     []
   );
 
   const canAnalyze = parsedData.length > 0 && parsedData.some((r) => r.parsedReps.some((v) => v !== null));
+
+  // Auto-load from URL ?historyId=xxx (when navigating from history/favorites page)
+  useEffect(() => {
+    if (loadedFromUrlRef.current) return;
+    if (!history.entries || history.entries.length === 0) return;
+
+    const historyId = searchParams.get('historyId');
+    if (!historyId) return;
+
+    const entry = history.entries.find(e => String(e.id) === historyId);
+    if (entry) {
+      loadedFromUrlRef.current = true;
+      handleLoadHistory(entry);
+    }
+  }, [history.entries, searchParams, handleLoadHistory]);
 
   return (
     <>
