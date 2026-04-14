@@ -39,10 +39,11 @@ ChartJS.register(
 interface RegressionChartProps {
   results: RegressionResult[];
   variableName: string;
+  quantFactorName?: string;
 }
 
 const RegressionChart = forwardRef<unknown, RegressionChartProps>(
-  ({ results, variableName }, ref) => {
+  ({ results, variableName, quantFactorName }, ref) => {
     
     // Find absolute min/max across all results
     let globalMinX = Infinity;
@@ -142,7 +143,7 @@ const RegressionChart = forwardRef<unknown, RegressionChartProps>(
           type: 'linear' as const,
           title: {
             display: true,
-            text: 'Níveis de Tratamento (Doses)',
+            text: quantFactorName || 'Níveis de Tratamento (Doses)',
             color: '#94a3b8',
             font: { family: 'Inter', size: 14, weight: 600 as const }
           },

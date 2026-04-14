@@ -21,6 +21,7 @@ import styles from './analysis.module.css';
 import ResultsChart from './ResultsChart';
 import { TidyDataGrid } from './TidyDataGrid';
 import type { TidyDataRow, TidyDataMapping, TidyRawState } from './TidyDataGrid';
+import { FileUploader } from '@/components/Data/FileUploader';
 
 const STEPS = [
   { label: 'Tipo de Análise', icon: '🧪' },
@@ -197,6 +198,39 @@ export default function AnalysisPage() {
     },
     [treatmentNames]
   );
+
+  const handleFileLoaded = useCallback((parsedData: string[][]) => {
+    if (parsedData.length > 0) {
+      const newTreatments = parsedData.length;
+      const newReps = Math.max(...parsedData.map((r) => r.length));
+
+      setNumTreatments(newTreatments);
+      setNumReps(newReps);
+
+      // Pad rows to same length with empty strings
+      const padded = parsedData.map((row) => {
+        const numRow: (number | string | null)[] = row.map(cell => {
+          const str = cell.trim();
+          if (str === '') return null;
+          const num = parseFloat(str.replace(',', '.'));
+          return isNaN(num) ? null : num;
+        });
+        while (numRow.length < newReps) numRow.push('');
+        return numRow;
+      });
+
+      setData(padded as (string | number)[][]);
+
+      // Generate treatment names if needed
+      if (treatmentNames.length < newTreatments) {
+        setTreatmentNames(
+          Array.from({ length: newTreatments }, (_, i) =>
+            treatmentNames[i] || `Trat ${i + 1}`
+          )
+        );
+      }
+    }
+  }, [treatmentNames]);
 
   // Run analysis
   const handleAnalyze = useCallback(() => {
@@ -886,10 +920,15 @@ export default function AnalysisPage() {
               Entrada de Dados — {variableName || 'Dados'}
             </h2>
 
-            <div className={styles.pasteHint}>
-              💡 Dica: Copie dados do Excel e cole diretamente na tabela (Ctrl+V)
+            <div className={styles.pasteHint} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>💡 Dica: Copie dados do Excel e cole diretamente na tabela (Ctrl+V)</div>
+              <FileUploader 
+                onDataLoaded={handleFileLoaded} 
+                title="Importar Arquivo (.xlsx, .dbf)"
+                subtitle="Preencher tabela automaticamente"
+                style={{ padding: '0.5rem 1rem', width: 'auto', minWidth: '250px' }}
+              />
             </div>
-
 
             <div className={styles.dataGrid} onPaste={handlePaste}>
               <table className={styles.dataTable} ref={tableRef}>

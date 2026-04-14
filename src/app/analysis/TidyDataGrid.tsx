@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import styles from './analysis.module.css'; // Reusing page styles for consistency
+import { FileUploader } from '@/components/Data/FileUploader';
 
 export interface TidyDataMapping {
   factorA: string;
@@ -71,6 +72,29 @@ export function TidyDataGrid({ design, onAnalyze, onBack, initialState }: TidyDa
       setMapping(autoMap);
     } else {
       alert('Por favor, copie os dados do Excel incluindo uma linha de cabeçalho.');
+    }
+  }, []);
+
+  const handleDataLoaded = useCallback((parsedData: string[][], fileName: string) => {
+    if (parsedData.length > 1) { // Needs at least header + 1 row
+      const detectedHeaders = parsedData[0];
+      setHeaders(detectedHeaders);
+      setRawData(parsedData.slice(1)); // Remove header from data
+      
+      // Auto-mapping attempt (basic heuristics)
+      const autoMap: Partial<TidyDataMapping> = {};
+      detectedHeaders.forEach(h => {
+        if (!h) return;
+        const lowerH = String(h).toLowerCase();
+        if (lowerH.includes('fator a') || lowerH === 'a') autoMap.factorA = h;
+        else if (lowerH.includes('fator b') || lowerH === 'b') autoMap.factorB = h;
+        else if (lowerH.includes('fator c') || lowerH === 'c') autoMap.factorC = h;
+        else if (lowerH.includes('bloco') || lowerH.includes('rep')) autoMap.block = h;
+        else if (lowerH.includes('prod') || lowerH.includes('alt') || lowerH.includes('peso') || lowerH.includes('resp') || lowerH.includes('var')) autoMap.response = h;
+      });
+      setMapping(autoMap);
+    } else {
+      alert('O arquivo selecionado não possui linhas suficientes ou está formatado incorretamente.');
     }
   }, []);
 
@@ -279,23 +303,36 @@ export function TidyDataGrid({ design, onAnalyze, onBack, initialState }: TidyDa
           </div>
         ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-          <div 
-            style={{
-              border: '2px dashed var(--border-color)',
-              borderRadius: 'var(--radius-lg)',
-              padding: 'var(--space-2xl)',
-              textAlign: 'center',
-              background: 'var(--bg-card)',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease'
-            }}
-            onPaste={handlePaste}
-          >
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📋</div>
-            <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Copie do Excel e cole aqui (Ctrl+V)</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '400px', margin: '0 auto' }}>
-              Certifique-se de que a <strong>primeira linha contém os nomes das colunas</strong> (Cabeçalho).
-            </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+            <FileUploader 
+              onDataLoaded={handleDataLoaded} 
+              title="Importar Arquivo"
+              subtitle=".xlsx, .xls, .csv, .dbf"
+              style={{ flex: 1 }}
+            />
+
+            <div 
+              style={{
+                border: '2px dashed var(--border-color)',
+                borderRadius: 'var(--radius-lg)',
+                padding: 'var(--space-2xl)',
+                textAlign: 'center',
+                background: 'var(--bg-card)',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}
+              onPaste={handlePaste}
+            >
+              <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📋</div>
+              <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.1rem' }}>Cole do Excel (Ctrl+V)</h3>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem', margin: 0, marginTop: '0.5rem' }}>
+                Clique aqui e cole sua tabela
+              </p>
+            </div>
           </div>
           
           <div style={{ textAlign: 'center', margin: 'var(--space-sm) 0' }}>

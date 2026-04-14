@@ -12,6 +12,8 @@ import type { AnovaResult, DesignType, FactorialAnovaResult } from '@/lib/statis
 import type { RegressionResult, PolynomialModel } from '@/lib/statistics/regression';
 import { validateGrid, getCellStates } from '@/lib/validation';
 import { useAnalysisHistory, HistoryEntry } from '@/hooks/useAnalysisHistory';
+import { FileUploader } from '@/components/Data/FileUploader';
+import type { ParsedSpreadsheetResult } from '@/lib/parseSpreadsheet';
 import { exportRegressionWord } from '@/lib/export';
 import { TidyDataRow } from '@/app/analysis/TidyDataGrid';
 import Header from '@/components/Layout/Header';
@@ -36,6 +38,7 @@ function RegressionPageContent() {
 
   // Quali setup
   const [hasQualiFactor, setHasQualiFactor] = useState(false);
+  const [quantFactorName, setQuantFactorName] = useState('Dose');
   const [qualiFactorName, setQualiFactorName] = useState('');
   const [levelNames, setLevelNames] = useState<string[]>(['', '']);
 
@@ -55,6 +58,7 @@ function RegressionPageContent() {
   // Results state
   const [anovaResult, setAnovaResult] = useState<AnovaResult | FactorialAnovaResult | null>(null);
   const [regressionResults, setRegressionResults] = useState<RegressionResult[] | null>(null);
+  const [selectedModels, setSelectedModels] = useState<Record<number, number>>({});
   const [alpha, setAlpha] = useState(0.05);
 
   // History / UI state
@@ -215,6 +219,136 @@ function RegressionPageContent() {
     });
   }, [hasQualiFactor]);
 
+  const handleFileLoaded = useCallback((parsedRows: string[][]) => {
+    if (parsedRows.length === 0) return;
+
+    // Detect if the file is Tidy Data (long format) by checking if the first column has repetitions
+    const firstColValues = parsedRows.slice(1).map(row => row[0]).filter(Boolean);
+    const uniqueFirstCol = new Set(firstColValues);
+    const isTidyFormat = uniqueFirstCol.size > 0 && firstColValues.length > uniqueFirstCol.size * 1.5;
+
+    if (isTidyFormat) {
+      // Find headers (assume first row if first cell is string, else use all)
+      const hasHeaders = isNaN(parseFloat(String(parsedRows[0][0]).replace(',', '.')));
+      const dataRows = hasHeaders ? parsedRows.slice(1) : parsedRows;
+      
+      let localHasQuali = hasQualiFactor;
+      // Auto-detect qualitative factor for Tidy Data based on column count (typically Dose, Quali, Bloco, Resp)
+      if (dataRows[0] && dataRows[0].length >= 4) {
+          localHasQuali = true;
+          setHasQualiFactor(true);
+          if (hasHeaders) setQualiFactorName(parsedRows[0][1] || 'Qualitativo');
+      } else if (dataRows[0] && dataRows[0].length === 3) {
+          // If 3 columns: Dose | Bloco | Resp. Thus, no quali factor normally.
+          localHasQuali = false;
+          setHasQualiFactor(false);
+      }
+
+      const map = new Map<string, { dose: string, level: string, reps: string[] }>();
+      let maxReps = 0;
+
+      dataRows.forEach(row => {
+          if (row.length < 2) return;
+          const dose = row[0];
+          
+          let level = '';
+          let response = '';
+
+          if (localHasQuali) {
+              level = row[1] || '';
+              response = row[row.length - 1] || ''; 
+          } else {
+              response = row[row.length - 1] || '';
+          }
+
+          if (!dose && !response) return;
+
+          const key = `${dose}_${level}`;
+          // ... rest of map code ...
+          if (!map.has(key)) {
+              map.set(key, { dose, level, reps: [] });
+          }
+          
+          const entry = map.get(key)!;
+          entry.reps.push(response);
+          if (entry.reps.length > maxReps) maxReps = entry.reps.length;
+      });
+
+      const newGrid = Array.from(map.values());
+      // Pad reps to maxReps
+      newGrid.forEach(row => {
+          while (row.reps.length < maxReps) row.reps.push('');
+      });
+
+      setGridData(newGrid);
+      setNumTreatments(uniqueFirstCol.size);
+      setNumReps(maxReps);
+      if (hasQualiFactor) {
+          const uniqueLevels = new Set(newGrid.map(r => r.level));
+          setLevelNames(Array.from(uniqueLevels));
+      }
+    } else {
+      // Expected Wide Data
+      // Re-initialize grid dimensions to match the uploaded Wide Data
+      const hasHeaders = isNaN(parseFloat(String(parsedRows[0][0]).replace(',', '.')));
+      const rowsToProcess = hasHeaders ? parsedRows.slice(1) : parsedRows;
+      if (rowsToProcess.length === 0) return;
+
+      const offset = hasQualiFactor ? 2 : 1;
+      const detectedReps = Math.max(...rowsToProcess.map(r => r.length - offset));
+      const finalReps = detectedReps > 0 ? detectedReps : 1;
+
+      const next = rowsToProcess.map(row => {
+          const reps = [];
+          for (let j = 0; j < finalReps; j++) {
+            reps.push(row[j + offset] || '');
+          }
+          return {
+            dose: row[0] || '',
+            level: hasQualiFactor ? (row[1] || '') : '',
+            reps: reps
+          };
+      });
+
+      setGridData(next);
+      setNumTreatments(next.length);
+      setNumReps(finalReps);
+      if (hasQualiFactor) {
+          const uniqueLevels = new Set(next.map(r => r.level));
+          setLevelNames(Array.from(uniqueLevels));
+      }
+    }
+  }, [hasQualiFactor]);
+
+  const handleAIParsed = useCallback((result: ParsedSpreadsheetResult) => {
+    const { isFatorial, qualiFactorName, responseName, rows } = result;
+
+    // Configure qualitative factor settings from AI result
+    setHasQualiFactor(isFatorial);
+    if (isFatorial && qualiFactorName) setQualiFactorName(qualiFactorName);
+    if (responseName) setVariableName(responseName);
+
+    // Extract unique levels in order of first appearance
+    const levels = isFatorial
+      ? Array.from(new Set(rows.map(r => r.level).filter(Boolean) as string[]))
+      : [];
+    if (levels.length > 0) setLevelNames(levels);
+
+    // Build grid data from structured AI result
+    const maxReps = Math.max(...rows.map(r => r.reps.length), 1);
+    const newGrid = rows.map(row => ({
+      dose: row.dose,
+      level: row.level || '',
+      reps: [...row.reps, ...Array(Math.max(0, maxReps - row.reps.length)).fill('')],
+    }));
+
+    setGridData(newGrid);
+    setNumTreatments(newGrid.length);
+    setNumReps(maxReps);
+
+    // Advance to data review step
+    setCurrentStep(1);
+  }, []);
 
   const handleAnalyze = useCallback(() => {
     // Basic validation check
@@ -270,14 +404,15 @@ function RegressionPageContent() {
     setAnovaResult(aResult);
 
     // 2. Compute polynomials per qualitative level (or 'Geral')
-    const levels = hasQualiFactor ? Array.from(new Set(tidyData.map(d => d.factorB))) : ['Geral'];
+    const levels = hasQualiFactor ? ['Geral', ...Array.from(new Set(tidyData.map(d => d.factorB)))] : ['Geral'];
 
     import('@/lib/statistics').then(({ polynomialRegressionTask }) => {
       const resultsArray: RegressionResult[] = [];
+      const initSelected: Record<number, number> = {};
 
       for (const lvl of levels) {
         // Filter observations for this level
-        const lvlData = hasQualiFactor ? tidyData.filter(d => d.factorB === lvl) : tidyData;
+        const lvlData = (hasQualiFactor && lvl !== 'Geral') ? tidyData.filter(d => d.factorB === lvl) : tidyData;
 
         // Build raw {x, y} pairs — doses must be numeric
         const rawPairs: { x: number; y: number }[] = [];
@@ -298,6 +433,10 @@ function RegressionPageContent() {
       }
 
       setRegressionResults(resultsArray);
+      resultsArray.forEach((r, idx) => {
+        initSelected[idx] = r.bestModelIndex;
+      });
+      setSelectedModels(initSelected);
       setCurrentStep(2);
     });
   }, [parsedData, tidyData, hasQualiFactor, design, alpha, variableName, qualiFactorName]);
@@ -318,7 +457,10 @@ function RegressionPageContent() {
       tukeyResult: null,
       scottKnottResult: null,
       dunnettResult: null,
-      regressionResult: regressionResults, // Saving the full array
+      regressionResult: regressionResults.map((r, idx) => ({
+        ...r,
+        bestModelIndex: selectedModels[idx] ?? r.bestModelIndex,
+      })),
       controlTreatment: '',
       comparisonMethod: 'regression',
       alpha: 0.05,
@@ -382,6 +524,11 @@ function RegressionPageContent() {
           ? entry.regressionResult
           : [entry.regressionResult];
         setRegressionResults(resultsArr as RegressionResult[]);
+        const restoredSelected: Record<number, number> = {};
+        resultsArr.forEach((r: any, idx) => {
+          restoredSelected[idx] = r.bestModelIndex;
+        });
+        setSelectedModels(restoredSelected);
         setAnovaResult(entry.anovaResult);
         setCurrentStep(2);
       } else {
@@ -458,11 +605,13 @@ function RegressionPageContent() {
         {/* Step 0: Initial config */}
         {currentStep === 0 && (
           <div className={styles.card}>
-            <h2 className={styles.cardTitle}>
-              <span className={styles.cardTitleIcon}>⚙️</span>
-              Configuração Fatorial da Regressão
-            </h2>
-            <div className={styles.formGrid}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '2rem' }}>
+              <div style={{ flex: '1 1 300px' }}>
+                <h2 className={styles.cardTitle}>
+                  <span className={styles.cardTitleIcon}>⚙️</span>
+                  Configuração da Regressão
+                </h2>
+                <div className={styles.formGrid}>
               <div className={styles.field}>
                 <label className={styles.label}>Delineamento</label>
                 <select className={styles.select} value={design} onChange={(e) => setDesign(e.target.value as DesignType)}>
@@ -476,6 +625,11 @@ function RegressionPageContent() {
                 <label className={styles.label}>Níveis Numéricos (Doses)</label>
                 <input type="number" min="2" className={styles.input} value={numTreatments} onChange={(e) => setNumTreatments(e.target.value)} />
                 <p className={styles.hintText}>Quantos níveis quantitativos você aplicou?</p>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>Fator Quantitativo (Eixo X)</label>
+                <input type="text" className={styles.input} placeholder="ex: Dose de Esterco" value={quantFactorName} onChange={(e) => setQuantFactorName(e.target.value)} />
               </div>
 
               <div className={styles.field}>
@@ -523,6 +677,24 @@ function RegressionPageContent() {
                 <input type="text" className={styles.input} placeholder="ex: Produtividade, Altura" value={variableName} onChange={(e) => setVariableName(e.target.value)} />
               </div>
             </div>
+          </div>
+
+          <div style={{ flex: '0 0 auto', padding: '1.5rem', background: 'rgba(99, 220, 190, 0.05)', border: '1px solid rgba(99,220,190,0.2)', borderRadius: '12px' }}>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  🤖 Importação com IA
+                </h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem', maxWidth: '300px' }}>
+                  O Gemini AI vai ler sua planilha, interpretar automaticamente as doses, níveis e respostas e preencher tudo já pronto — sem configuração manual.
+                </p>
+                <FileUploader 
+                  useAI={true}
+                  onAIParsed={handleAIParsed}
+                  aiContext="Experimento agrícola com regressão polinomial, doses quantitativas e possível fator qualitativo (ex: adubação NPK, com/sem aplicação)"
+                  title="Importar com IA (.xlsx, .dbf)"
+                  subtitle="Gemini lê e preenche tudo automaticamente"
+                />
+              </div>
+            </div>
             
             <div className={styles.buttonRow}>
               <button className={styles.btnPrimary} onClick={handleGenerateGrid}>Configurar Grade →</button>
@@ -539,14 +711,84 @@ function RegressionPageContent() {
                 Inserir Dados Numéricos
               </h2>
             </div>
-            <p className={styles.infoText}>
-              Você pode colar diretamente do Excel (Ctrl+V) dentro da tabela. A primeira coluna de identificadores deve conter valores puramente numéricos (ex: 0, 50, 100). Estes serão o seu eixo X.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+              <p className={styles.infoText} style={{ margin: 0, maxWidth: '60%' }}>
+                Você pode colar diretamente do Excel (Ctrl+V) dentro da tabela. A primeira coluna de identificadores deve conter valores puramente numéricos (ex: 0, 50, 100). Estes serão o seu eixo X.
+              </p>
+              <FileUploader 
+                onDataLoaded={handleFileLoaded} 
+                title="Importar Arquivo (.xlsx, .dbf)"
+                subtitle="Preencher tabela automaticamente"
+                style={{ padding: '0.5rem 1rem', width: 'auto', minWidth: '250px' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  Delineamento Experimental
+                </label>
+                <select className={styles.select} style={{ width: 'auto', padding: '6px 12px' }} value={design} onChange={(e) => setDesign(e.target.value as DesignType)}>
+                  <option value="DIC">Inteiramente Casualizado (DIC)</option>
+                  <option value="DBC">Blocos Casualizados (DBC)</option>
+                </select>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: '400px' }}>
+                Altere aqui caso tenha importado seus dados por planilha e precise rodar sua regressão contemplando blocos (DBC) ou um delineamento inteiramente ao acaso (DIC).
+              </div>
+            </div>
+
+            {hasQualiFactor && levelNames.length > 0 && (
+              <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(99, 220, 190, 0.1)', border: '1px solid rgba(99,220,190,0.3)', borderRadius: '8px' }}>
+                <h3 style={{ margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)', fontSize: '1rem' }}>
+                  <span>🎯</span> Fatorial Detectado! (Renomear Níveis)
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                  Reconhecemos automaticamente um Fator Qualitativo e dividimos as respostas. Caso deseje renomear os identificadores da sua planilha para aparecerem mais bonitos no gráfico (ex: trocar "A" por "Ausência"), digite abaixo:
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  {levelNames.map((lvl, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.05)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>Nível Detectado:<span style={{ color: 'var(--primary)', marginLeft: '4px' }}>{lvl}</span></span>
+                      <span style={{ color: 'var(--text-muted)' }}>→</span>
+                      <input 
+                        className={styles.input} 
+                        style={{ padding: '4px 8px', fontSize: '0.85rem', width: '140px', background: 'rgba(0,0,0,0.2)' }} 
+                        value={lvl}
+                        placeholder={lvl}
+                        onChange={(e) => {
+                           const oldName = lvl;
+                           const newName = e.target.value;
+                           // Always allow typing but fallback to old name if empty on blur? Actually just bind to state.
+                           const newLevels = [...levelNames];
+                           newLevels[idx] = newName;
+                           setLevelNames(newLevels);
+                           setGridData(prev => prev.map(row => 
+                             row.level === oldName ? { ...row, level: newName } : row
+                           ));
+                        }} 
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            
             <div className={styles.tableWrapper} onPaste={handlePasteExcel}>
               <table className={styles.table} style={{ borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    <th style={{ border: '1px solid rgba(255,255,255,0.1)' }}>Dose (X)</th>
+                    <th style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <input
+                         type="text"
+                         value={quantFactorName}
+                         onChange={(e) => setQuantFactorName(e.target.value)}
+                         className={styles.cellInput}
+                         style={{ width: '100%', background: 'transparent', border: 'none', color: 'inherit', fontWeight: 'bold', textAlign: 'center', padding: 0 }}
+                         placeholder="Dose (X)"
+                      />
+                    </th>
                     {hasQualiFactor && (
                       <th style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
                         <input
@@ -643,15 +885,37 @@ function RegressionPageContent() {
               
               <div className={styles.chartWrapper} style={{ height: '400px', padding: '1rem', background: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', marginBottom: '2rem' }}>
                   <RegressionChart 
-                     results={regressionResults}
+                     results={regressionResults.map((r, idx) => ({ ...r, bestModelIndex: selectedModels[idx] ?? r.bestModelIndex }))}
                      variableName={variableName}
+                     quantFactorName={quantFactorName}
                   />
               </div>
 
+              <style>{`
+                .helperTooltip { position: relative; display: inline-flex; align-items: center; justify-content: center; margin-left: 8px; cursor: help; vertical-align: middle; }
+                .helperTooltipIcon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border-radius: 50%; font-size: 0.8rem; font-weight: bold; border: 1px solid rgba(56, 189, 248, 0.3); }
+                .helperTooltipContent {
+                  visibility: hidden; opacity: 0; position: absolute; z-index: 50;
+                  top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: 380px; background: #0f172a;
+                  border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px;
+                  padding: 1.2rem; box-shadow: 0 10px 40px rgba(0,0,0,0.8); font-size: 0.9rem;
+                  color: var(--text-secondary); transition: all 0.2s ease; font-weight: normal;
+                  pointer-events: none;
+                }
+                .helperTooltip:hover .helperTooltipContent {
+                  visibility: visible; opacity: 1; pointer-events: auto;
+                }
+                .helperTooltipContent h4 { margin: 0 0 0.5rem 0; color: #cbd5e1; font-weight: 600; }
+                .helperTooltipContent p { margin: 0; }
+                .helperTooltipContent ul { margin: 0; padding-left: 1.2rem; }
+                .helperTooltipContent li { margin-bottom: 0.4rem; }
+              `}</style>
+
+              {/* === REGRESSION TABLES === */}
               {regressionResults.map((regRes, iterIdx) => (
                 <div key={iterIdx} style={{ marginBottom: '3rem' }}>
                   <h3 style={{ color: '#f8fafc', marginBottom: '1rem', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>
-                    Nível: {regRes.levelName || 'Geral'}
+                    Desdobramento da Regressão {hasQualiFactor && regRes.levelName && regRes.levelName !== 'Geral' ? `- Nível: ${regRes.levelName}` : '(Geral)'}
                   </h3>
                   <div className={styles.methodConfig} style={{ marginBottom: "2rem" }}>
                     <table className={styles.anovaTable}>
@@ -665,11 +929,19 @@ function RegressionPageContent() {
                         </tr>
                       </thead>
                       <tbody>
-                        {regRes.models.map((mod, k) => (
-                          <tr key={k} style={{
-                            backgroundColor: k === regRes.bestModelIndex ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
-                            fontWeight: k === regRes.bestModelIndex ? 'bold' : 'normal'
-                          }}>
+                        {regRes.models.map((mod, k) => {
+                          const isSelected = k === (selectedModels[iterIdx] ?? regRes.bestModelIndex);
+                          return (
+                          <tr key={k} 
+                            onClick={() => setSelectedModels(prev => ({ ...prev, [iterIdx]: k }))}
+                            style={{
+                              backgroundColor: isSelected ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
+                              fontWeight: isSelected ? 'bold' : 'normal',
+                              cursor: 'pointer',
+                              borderLeft: isSelected ? '3px solid #10b981' : '3px solid transparent'
+                            }}
+                            title="Clique para selecionar este modelo para o gráfico"
+                          >
                             <td>{mod.name}</td>
                             <td>{mod.equation}</td>
                             <td>{(mod.r2 * 100).toFixed(2)}%</td>
@@ -680,100 +952,179 @@ function RegressionPageContent() {
                               {formatNumber(mod.pDeviations)} {mod.pDeviations > alpha ? 'ns' : '*'}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
 
-                  <h3 style={{ color: '#f8fafc', marginBottom: '1rem' }}>Quadro da Análise de Variância Ampliado ({regRes.levelName || 'Geral'})</h3>
-                  <table className={styles.anovaTable}>
-                    <thead>
-                      <tr>
-                        <th>Fonte de Variação</th>
-                        <th>GL</th>
-                        <th>SQ</th>
-                        <th>QM</th>
-                        <th>F calc</th>
-                        <th>p-valor</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {iterIdx === 0 && anovaResult.table.map((row, i) => {
-                         if (row.source === 'Tratamentos' || row.source === 'Resíduo' || row.source === 'Total') return null;
-                         return (
-                            <tr key={i}>
-                              <td>{row.source}</td>
-                              <td>{row.df}</td>
-                              <td>{formatNumber(row.ss)}</td>
-                              <td>{formatNumber(row.ms)}</td>
-                              <td>{row.fValue !== null ? formatNumber(row.fValue) : '-'}</td>
-                              <td>
-                                {row.pValue !== null ? formatNumber(row.pValue) : '-'}
-                                <span className={styles.significanceMark}>{row.significance}</span>
-                              </td>
-                            </tr>
-                         );
-                      })}
-                      
-                      <tr>
-                        <td><strong>Tratamentos (Total: {regRes.levelName || 'Geral'})</strong></td>
-                        <td>{regRes.dfTreatments}</td>
-                        <td>{formatNumber(regRes.ssTreatments)}</td>
-                        <td>{formatNumber(regRes.ssTreatments / regRes.dfTreatments)}</td>
-                        <td>-</td>
-                        <td>-</td>
-                      </tr>
-                      
-                      {regRes.models.map((mod, k) => (
-                        <tr key={`reg-${k}`} style={{ background: k === regRes.bestModelIndex ? 'rgba(255,255,255,0.05)' : 'transparent'}}>
-                          <td style={{ paddingLeft: '2rem' }}>↳ Efeito {mod.name}</td>
-                          <td>1</td>
-                          <td>{formatNumber(mod.ssSequential)}</td>
-                          <td>{formatNumber(mod.msSequential)}</td>
-                          <td>{formatNumber(mod.fSequential)}</td>
-                          <td>
-                             {formatNumber(mod.pSequential)}
-                             <span className={styles.significanceMark}>{mod.pSequential <= alpha ? '*' : 'ns'}</span>
-                          </td>
+                  <h3 style={{ color: '#f8fafc', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
+                    Quadro da Regressão ({regRes.levelName || 'Geral'})
+                    {regRes.models.length > 0 && (() => {
+                      const modIndex = selectedModels[iterIdx] ?? regRes.bestModelIndex;
+                      const mod = regRes.models[modIndex];
+                      if (!mod) return null;
+                      const isSig = mod.pSequential <= alpha;
+                      const noDev = mod.pDeviations > alpha;
+                      return (
+                        <div className="helperTooltip">
+                          <span className="helperTooltipIcon">?</span>
+                          <div className="helperTooltipContent">
+                            <h4 style={{ margin: '0 0 0.5rem 0', color: '#cbd5e1' }}>Interpretação do Modelo ({mod.name})</h4>
+                            <p style={{ lineHeight: '1.6' }}>
+                              {isSig 
+                                ? <span>A regressão pelo modelo <strong>{mod.name}</strong> foi significativa (p &lt; {alpha}), indicando que consegue explicar a tendência da resposta.</span>
+                                : <span>O modelo <strong>{mod.name}</strong> não obteve significância (p &gt; {alpha}). Ausência de resposta clara.</span>
+                              }
+                              <br/><br/>
+                              {noDev
+                                ? <span><strong>Desvios não significativos</strong> (p &gt; {alpha}). Cenário ideal: excelente ajuste e variação não explicada é puro erro aleatório.</span>
+                                : <span><strong>Desvios foram significativos</strong> (p &lt; {alpha}). A curva foge do padrão perfeito deste modelo (grau superior pode ser melhor).</span>
+                              }
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </h3>
+                  <div className={styles.methodConfig} style={{ marginBottom: "2rem" }}>
+                    <table className={styles.anovaTable}>
+                      <thead>
+                        <tr>
+                          <th>Fonte de Variação</th>
+                          <th>GL</th>
+                          <th>SQ</th>
+                          <th>QM</th>
+                          <th>F calc</th>
+                          <th>p-valor</th>
                         </tr>
-                      ))}
-                      
-                      {regRes.models.length > 0 && (
-                        <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                          <td style={{ paddingLeft: '2rem' }}>↳ Desvios da Regressão (Grau máx)</td>
-                          <td>{regRes.models[regRes.models.length - 1].dfDeviations}</td>
-                          <td>{formatNumber(regRes.models[regRes.models.length - 1].ssDeviations)}</td>
-                          <td>{formatNumber(regRes.models[regRes.models.length - 1].msDeviations)}</td>
-                          <td>{formatNumber(regRes.models[regRes.models.length - 1].fDeviations)}</td>
-                          <td>
-                             {formatNumber(regRes.models[regRes.models.length - 1].pDeviations)}
-                             <span className={styles.significanceMark}>{regRes.models[regRes.models.length - 1].pDeviations <= alpha ? '*' : 'ns'}</span>
-                          </td>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><strong>Tratamentos ({quantFactorName || 'Tratamentos'})</strong></td>
+                          <td>{regRes.dfTreatments}</td>
+                          <td>{formatNumber(regRes.ssTreatments)}</td>
+                          <td>{formatNumber(regRes.ssTreatments / regRes.dfTreatments)}</td>
+                          <td>-</td>
+                          <td>-</td>
                         </tr>
-                      )}
-    
-                      {iterIdx === 0 && anovaResult.table.map((row, i) => {
-                         if (row.source === 'Resíduo' || row.source === 'Total') {
-                           return (
-                            <tr key={i}>
-                              <td>{row.source}</td>
-                              <td>{row.df}</td>
-                              <td>{formatNumber(row.ss)}</td>
-                              <td>{formatNumber(row.ms)}</td>
-                              <td>{row.fValue !== null ? formatNumber(row.fValue) : '-'}</td>
-                              <td>
-                                {row.pValue !== null ? formatNumber(row.pValue) : '-'}
-                                <span className={styles.significanceMark}>{row.significance}</span>
-                              </td>
-                            </tr>
-                           );
-                         }
-                         return null;
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        
+                        {regRes.models.map((mod, k) => {
+                          const isSelected = k === (selectedModels[iterIdx] ?? regRes.bestModelIndex);
+                          return (
+                          <tr key={`reg-${k}`} style={{ background: isSelected ? 'rgba(255,255,255,0.05)' : 'transparent'}}>
+                            <td style={{ paddingLeft: '2rem' }}>↳ Efeito {mod.name}</td>
+                            <td>1</td>
+                            <td>{formatNumber(mod.ssSequential)}</td>
+                            <td>{formatNumber(mod.msSequential)}</td>
+                            <td>{formatNumber(mod.fSequential)}</td>
+                            <td>
+                               {formatNumber(mod.pSequential)}
+                               <span className={styles.significanceMark}>{mod.pSequential <= alpha ? '*' : 'ns'}</span>
+                            </td>
+                          </tr>
+                          );
+                        })}
+                        
+                        {regRes.models.length > 0 && (
+                          <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                            <td style={{ paddingLeft: '2rem' }}>↳ Desvios da Regressão (Grau máx)</td>
+                            <td>{regRes.models[regRes.models.length - 1].dfDeviations}</td>
+                            <td>{formatNumber(regRes.models[regRes.models.length - 1].ssDeviations)}</td>
+                            <td>{formatNumber(regRes.models[regRes.models.length - 1].msDeviations)}</td>
+                            <td>{formatNumber(regRes.models[regRes.models.length - 1].fDeviations)}</td>
+                            <td>
+                               {formatNumber(regRes.models[regRes.models.length - 1].pDeviations)}
+                               <span className={styles.significanceMark}>{regRes.models[regRes.models.length - 1].pDeviations <= alpha ? '*' : 'ns'}</span>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                                  </div>
               ))}
+              {/* === GENERAL ANOVA TABLE === */}
+              {anovaResult && (
+                  <div style={{ marginBottom: '3rem' }}>
+                    <h3 style={{ color: '#f8fafc', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
+                      Quadro da Análise de Variância (Geral)
+                      <div className="helperTooltip">
+                        <span className="helperTooltipIcon">?</span>
+                        <div className="helperTooltipContent">
+                          <h4 style={{ margin: '0 0 0.5rem 0', color: '#cbd5e1' }}>Interpretação Simplificada</h4>
+                          <ul style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {anovaResult.table.map((row, i) => {
+                               if (row.source === 'Resíduo' || row.source === 'Total') return null;
+                               if (hasQualiFactor && (row.source === 'Tratamentos' || row.source === 'Tratamento')) return null;
+                               let sourceName = row.source;
+                               if (row.source === 'Fator A') sourceName = quantFactorName || 'Fator Quantitativo';
+                               if (row.source === 'Fator B') sourceName = qualiFactorName || 'Fator Qualitativo';
+                               if (row.source === 'Interação AxB') sourceName = `Interação (${quantFactorName || 'A'} x ${qualiFactorName || 'B'})`;
+                               if (!hasQualiFactor && (row.source === 'Tratamentos' || row.source === 'Tratamento')) sourceName = quantFactorName || 'Tratamentos (Doses)';
+                               if (row.pValue !== null) {
+                                  const sig = row.pValue <= alpha;
+                                  return (
+                                    <li key={`interp-geral-${i}`}>
+                                      <strong>{sourceName}:</strong> {sig 
+                                        ? <span>Provocou <strong>efeito significativo</strong> (p &lt; {alpha}). O seu resultado prático muda ativamente em reposta a esse fator.</span>
+                                        : <span><strong>Não apresentou efeito significativo</strong> (p &gt; {alpha}). Sozinho, variar este fator ou interação provavelmente não gera mudanças reais observáveis.</span>
+                                      }
+                                    </li>
+                                  );
+                               }
+                               return null;
+                            })}
+                          </ul>
+                        </div>
+                      </div>
+                    </h3>
+                    <div className={styles.methodConfig} style={{ marginBottom: "2rem" }}>
+                      <table className={styles.anovaTable}>
+                        <thead>
+                          <tr>
+                            <th>Fonte de Variação</th>
+                            <th>GL</th>
+                            <th>SQ</th>
+                            <th>QM</th>
+                            <th>F calc</th>
+                            <th>p-valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {anovaResult.table.map((row, i) => {
+                            if (hasQualiFactor && (row.source === 'Tratamentos' || row.source === 'Tratamento')) return null;
+                            
+                            let sourceName = row.source;
+                            if (row.source === 'Fator A') sourceName = quantFactorName || 'Fator A';
+                            if (row.source === 'Fator B') sourceName = qualiFactorName || 'Fator B';
+                            if (row.source === 'Interação AxB') sourceName = `Interação ${quantFactorName || 'A'} x ${qualiFactorName || 'B'}`;
+                            if (!hasQualiFactor && (row.source === 'Tratamentos' || row.source === 'Tratamento')) sourceName = quantFactorName || 'Tratamentos';
+
+                            return (
+                              <tr key={i}>
+                                <td>{sourceName}</td>
+                                <td>{row.df}</td>
+                                <td>{formatNumber(row.ss)}</td>
+                                <td>{formatNumber(row.ms)}</td>
+                                <td>{row.fValue !== null ? formatNumber(row.fValue) : '-'}</td>
+                                <td>
+                                  {row.pValue !== null ? formatNumber(row.pValue) : '-'}
+                                  <span className={styles.significanceMark}>{row.significance}</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ paddingLeft: '1rem', color: 'var(--text-secondary)' }}>
+                       <strong>Coeficiente de Variação (CV):</strong> {anovaResult.cv.toFixed(2)}%
+                    </div>
+
+                  </div>
+              )}
 
               <div className={styles.buttonRow} style={{ marginTop: 'var(--space-2xl)' }}>
                  <button className={styles.btnSecondary} onClick={() => setCurrentStep(1)}>← Reconfigurar Dados</button>

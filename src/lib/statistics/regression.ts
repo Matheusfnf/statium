@@ -257,7 +257,23 @@ export function polynomialRegressionTask(
   // Also deviations should NOT be significant (lack of fit acceptable).
   // If no model passes, fall back to the highest-degree model anyway for plotting.
   let bestModelIndex = -1;
+  const numDoses = sortedDoses.length;
+  
   for (let i = models.length - 1; i >= 0; i--) {
+    // Evita selecionar o grau máximo (k-1) se for > 1 (ex: cúbico para 4 doses),
+    // pois isso interpola os pontos e dá R²=100%, o que geralmente é um superajuste na biologia.
+    // Só ignora se algum modelo de grau menor também for significativo.
+    if (models[i].degree === numDoses - 1 && models[i].degree > 1) {
+      let lowerSignificant = false;
+      for (let j = i - 1; j >= 0; j--) {
+        if (models[j].pSequential <= 0.05) {
+          lowerSignificant = true;
+          break;
+        }
+      }
+      if (lowerSignificant) continue;
+    }
+
     if (models[i].pSequential <= 0.05) {
       bestModelIndex = i;
       break;
